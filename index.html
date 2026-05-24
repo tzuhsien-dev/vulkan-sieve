@@ -583,6 +583,7 @@
       let selectedFile = null;
       let allResults = [];
       let visibleResults = [];
+      let frameBuckets = new Map();
       let frames = [];
       let stats = { read: 0, matched: 0, skipped: 0 };
       let renderQueued = false;
@@ -626,6 +627,7 @@
       function resetResults() {
         allResults = [];
         visibleResults = [];
+        frameBuckets = new Map();
         frames = [];
         stats = { read: 0, matched: 0, skipped: 0 };
         els.viewer.scrollTop = 0;
@@ -680,7 +682,12 @@
         const selectedFrame = els.frame.value;
         visibleResults = selectedFrame === "all"
           ? allResults
-          : allResults.filter(item => String(item.frameNumber) === selectedFrame);
+          : frameBuckets.get(selectedFrame) || [];
+        els.frameText.textContent = selectedFrame === "all"
+          ? frames.length > 0
+            ? `${formatCount(frames.length)} frames indexed.`
+            : "No [F#...] frame markers found."
+          : `F#${selectedFrame}: ${formatCount(visibleResults.length)} matching lines.`;
         els.viewer.scrollTop = 0;
         lastRenderedStart = -1;
         lastRenderedEnd = -1;
@@ -841,11 +848,19 @@
           const message = event.data;
           if (message.type === "batch") {
             allResults.push(...message.items);
+            message.items.forEach(item => {
+              if (item.frameNumber === null) return;
+              const frameKey = String(item.frameNumber);
+              if (!frameBuckets.has(frameKey)) {
+                frameBuckets.set(frameKey, []);
+              }
+              frameBuckets.get(frameKey).push(item);
+            });
             if (els.frame.value === "all") {
               visibleResults = allResults;
             } else {
               const selectedFrame = els.frame.value;
-              visibleResults.push(...message.items.filter(item => String(item.frameNumber) === selectedFrame));
+              visibleResults = frameBuckets.get(selectedFrame) || [];
             }
             stats.read = message.stats.read;
             stats.matched = message.stats.matched;
@@ -871,10 +886,10 @@
 
           if (message.type === "done") {
             stats = message.stats;
+            isScanning = false;
             frames = Array.isArray(message.frames) ? message.frames : [];
             populateFrameSelect(frames);
             applyFrameFilter();
-            isScanning = false;
             els.progressBar.style.width = "100%";
             els.progressText.textContent = `Completed. ${formatCount(stats.read)} lines read, ${formatCount(stats.matched)} matched.`;
             els.workerMessage.textContent = message.wasCancelled ? "Scan cancelled." : "";

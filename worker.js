@@ -7,7 +7,7 @@ const PROGRESS_INTERVAL_MS = 120;
 const BIND_COMMAND_RE = /\bvkCmdBind[A-Za-z0-9_]*\b/;
 const SET_COMMAND_RE = /\bvkCmdSet[A-Za-z0-9_]*\b/;
 const FRAME_RE = /\[F#(\d+)\]/;
-const API_CALL_RE = /\b(vk[A-Za-z0-9_]+)\s*\(/;
+const API_CALL_RE = /\b(vk[A-Za-z0-9_]+)(?=\s*(?:\(|:))/;
 
 self.onmessage = event => {
   const message = event.data;
