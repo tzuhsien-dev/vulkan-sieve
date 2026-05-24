@@ -730,7 +730,6 @@
       let visibleResults = [];
       let frameBuckets = new Map();
       let frames = [];
-      let tids = [];
       let stats = { read: 0, matched: 0, skipped: 0 };
       let renderQueued = false;
       let lastRenderedStart = -1;
@@ -776,7 +775,6 @@
         visibleResults = [];
         frameBuckets = new Map();
         frames = [];
-        tids = [];
         stats = { read: 0, matched: 0, skipped: 0 };
         els.viewer.scrollTop = 0;
         els.spacer.style.height = "0px";
@@ -930,7 +928,7 @@
         els.tid.setAttribute("aria-disabled", "true");
         els.selectAllTids.disabled = true;
         els.clearTids.disabled = true;
-        els.tidText.textContent = "Scan a log to build the TID index.";
+        els.tidText.textContent = "Select Frames to build the TID filter.";
       }
 
       function populateTidSelect(tidNumbers) {
@@ -954,8 +952,10 @@
         els.selectAllTids.disabled = tidNumbers.length === 0;
         els.clearTids.disabled = tidNumbers.length === 0;
         els.tidText.textContent = tidNumbers.length > 0
-          ? `${formatCount(tidNumbers.length)} TIDs indexed. Optional filter.`
-          : "No Android TID prefix found.";
+          ? `${formatCount(tidNumbers.length)} TIDs in selected Frames. Optional filter.`
+          : getSelectedFrames().length === 0
+            ? "Select Frames to build the TID filter."
+            : "No TIDs found in selected Frames.";
       }
 
       function getSelectedFrames() {
@@ -982,8 +982,21 @@
         return true;
       }
 
+      function getTidsForSelectedFrames(selectedFrames) {
+        const tidSet = new Set();
+        selectedFrames
+          .flatMap(frameNumber => frameBuckets.get(frameNumber) || [])
+          .forEach(item => {
+            if (item.tid !== null) {
+              tidSet.add(item.tid);
+            }
+          });
+        return Array.from(tidSet).sort((a, b) => a - b);
+      }
+
       function applyFrameFilter() {
         const selectedFrames = getSelectedFrames();
+        populateTidSelect(getTidsForSelectedFrames(selectedFrames));
         const selectedTids = getSelectedTids();
         visibleResults = selectedFrames
           .flatMap(frameNumber => frameBuckets.get(frameNumber) || [])
@@ -999,11 +1012,11 @@
           els.frameText.textContent = `${formatCount(selectedFrames.length)} Frames selected: ${formatCount(visibleResults.length)} matching lines.`;
         }
         if (selectedTids.length === 0) {
-          els.tidText.textContent = tids.length > 0
-            ? `${formatCount(tids.length)} TIDs indexed. Optional filter.`
-            : "No Android TID prefix found.";
-        } else if (selectedTids.length === tids.length) {
-          els.tidText.textContent = `All ${formatCount(tids.length)} TIDs selected.`;
+          els.tidText.textContent = selectedFrames.length > 0
+            ? `${formatCount(getTidsForSelectedFrames(selectedFrames).length)} TIDs in selected Frames. Optional filter.`
+            : "Select Frames to build the TID filter.";
+        } else if (selectedTids.length === getTidsForSelectedFrames(selectedFrames).length) {
+          els.tidText.textContent = `All ${formatCount(selectedTids.length)} TIDs in selected Frames selected.`;
         } else {
           els.tidText.textContent = `${formatCount(selectedTids.length)} TIDs selected.`;
         }
@@ -1264,9 +1277,7 @@
             stats = message.stats;
             isScanning = false;
             frames = Array.isArray(message.frames) ? message.frames : [];
-            tids = Array.isArray(message.tids) ? message.tids : [];
             populateFrameSelect(frames);
-            populateTidSelect(tids);
             applyFrameFilter();
             els.progressBar.style.width = "100%";
             els.progressText.textContent = `Completed. ${formatCount(stats.read)} lines read, ${formatCount(stats.matched)} matched.`;
