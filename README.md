@@ -20,4 +20,4 @@ http://localhost:8000/
 
 ## GitHub Pages
 
-This repository includes a GitHub Actions workflow that publishes the static site to GitHub Pages whenever `main` is pushed.
+Publish from `main` / root in the repository's GitHub Pages settings.
