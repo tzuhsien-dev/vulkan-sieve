@@ -342,6 +342,26 @@
       display: none;
     }
 
+    .action-toast {
+      position: absolute;
+      top: 54px;
+      right: 14px;
+      z-index: 4;
+      max-width: min(420px, calc(100% - 28px));
+      padding: 8px 10px;
+      border: 1px solid rgb(143 209 106 / 45%);
+      border-radius: 6px;
+      background: #22301f;
+      color: var(--text);
+      box-shadow: 0 10px 28px rgb(0 0 0 / 30%);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .action-toast[hidden] {
+      display: none;
+    }
+
     .frame-summary {
       display: grid;
       grid-template-columns: auto minmax(0, 1fr);
@@ -595,6 +615,7 @@
           <span id="domCount">0 DOM rows</span>
         </div>
       </div>
+      <div id="actionToast" class="action-toast" hidden role="status" aria-live="polite"></div>
       <div id="selectionNotice" class="selection-notice" hidden>
         Scan complete. Select one or more Frames from the left panel to display matching log lines.
       </div>
@@ -647,6 +668,7 @@
         domCount: document.getElementById("domCount"),
         copyFiltered: document.getElementById("copyFilteredBtn"),
         downloadFiltered: document.getElementById("downloadFilteredBtn"),
+        actionToast: document.getElementById("actionToast"),
         workerMessage: document.getElementById("workerMessage"),
         selectionNotice: document.getElementById("selectionNotice"),
         frameSummary: document.getElementById("frameSummary"),
@@ -670,6 +692,7 @@
       let lastRenderedEnd = -1;
       let lastRenderAt = 0;
       let isScanning = false;
+      let toastTimer = 0;
       let activeQuery = { keyword: "", focusHandle: "", focusOnly: false };
 
       function formatCount(value) {
@@ -760,12 +783,29 @@
         return `${baseName}-${framePart}.log`;
       }
 
+      function showActionToast(message) {
+        window.clearTimeout(toastTimer);
+        els.actionToast.textContent = message;
+        els.actionToast.hidden = false;
+        toastTimer = window.setTimeout(() => {
+          els.actionToast.hidden = true;
+        }, 2600);
+      }
+
+      function flashButton(button, text) {
+        const originalText = button.textContent;
+        button.textContent = text;
+        window.setTimeout(() => {
+          button.textContent = originalText;
+        }, 1400);
+      }
+
       async function copyFilteredLogs() {
         if (visibleResults.length === 0) return;
         const text = getFilteredLogText();
+        const message = `Copied ${formatCount(visibleResults.length)} filtered lines to clipboard.`;
         try {
           await navigator.clipboard.writeText(text);
-          els.workerMessage.textContent = `Copied ${formatCount(visibleResults.length)} filtered lines.`;
         } catch (_) {
           const textarea = document.createElement("textarea");
           textarea.value = text;
@@ -776,8 +816,10 @@
           textarea.select();
           document.execCommand("copy");
           textarea.remove();
-          els.workerMessage.textContent = `Copied ${formatCount(visibleResults.length)} filtered lines.`;
         }
+        els.workerMessage.textContent = message;
+        showActionToast(message);
+        flashButton(els.copyFiltered, "Copied");
       }
 
       function downloadFilteredLogs() {
@@ -791,7 +833,10 @@
         link.click();
         link.remove();
         URL.revokeObjectURL(url);
-        els.workerMessage.textContent = `Downloaded ${formatCount(visibleResults.length)} filtered lines.`;
+        const message = `Downloaded ${formatCount(visibleResults.length)} filtered lines.`;
+        els.workerMessage.textContent = message;
+        showActionToast(message);
+        flashButton(els.downloadFiltered, "Downloaded");
       }
 
       function resetFrameSelect() {
