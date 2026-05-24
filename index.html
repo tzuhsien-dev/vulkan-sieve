@@ -145,14 +145,35 @@
       outline: none;
     }
 
-    select[multiple] {
-      height: 150px;
-      padding: 6px;
-      font-family: var(--mono);
+    .frame-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 8px;
+      max-height: 190px;
+      overflow: auto;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #141813;
     }
 
-    select[multiple] option {
-      padding: 4px 6px;
+    .frame-list[aria-disabled="true"] {
+      opacity: .55;
+      pointer-events: none;
+    }
+
+    .frame-option {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      min-width: 0;
+      color: var(--text);
+      font: 12px/1.4 var(--mono);
+    }
+
+    .frame-option input {
+      margin: 0;
+      accent-color: var(--accent);
     }
 
     input[type="search"],
@@ -512,8 +533,8 @@
       </section>
 
       <section class="control-group">
-        <label for="frameSelect">Frame</label>
-        <select id="frameSelect" multiple disabled></select>
+        <div class="label">Frame</div>
+        <div id="frameList" class="frame-list" aria-disabled="true"></div>
         <div class="button-row">
           <button id="selectAllFramesBtn" class="secondary" disabled>Show all</button>
           <button id="clearFramesBtn" class="secondary" disabled>Clear</button>
@@ -568,7 +589,7 @@
         focusOnly: document.getElementById("focusOnlyInput"),
         hideBind: document.getElementById("hideBindInput"),
         hideSet: document.getElementById("hideSetInput"),
-        frame: document.getElementById("frameSelect"),
+        frame: document.getElementById("frameList"),
         selectAllFrames: document.getElementById("selectAllFramesBtn"),
         clearFrames: document.getElementById("clearFramesBtn"),
         frameText: document.getElementById("frameText"),
@@ -659,7 +680,7 @@
         if (allResults.length === 0) {
           els.empty.textContent = "Choose a Vulkan log file and start scanning.";
         } else if (getSelectedFrames().length === 0) {
-          els.empty.textContent = "Select one or more Frames to display matching log lines.";
+          els.empty.textContent = "Scan complete. Select one or more Frames from the left panel to display matching log lines.";
         } else {
           els.empty.textContent = "No matching lines for the selected Frames.";
         }
@@ -676,7 +697,7 @@
 
       function resetFrameSelect() {
         els.frame.replaceChildren();
-        els.frame.disabled = true;
+        els.frame.setAttribute("aria-disabled", "true");
         els.selectAllFrames.disabled = true;
         els.clearFrames.disabled = true;
         els.frameText.textContent = "Scan a log to build the frame index.";
@@ -686,11 +707,20 @@
         const selected = new Set(getSelectedFrames());
         els.frame.replaceChildren();
         frameNumbers.forEach(frameNumber => {
-          const option = new Option(`F#${frameNumber}`, String(frameNumber));
-          option.selected = selected.has(option.value);
-          els.frame.append(option);
+          const value = String(frameNumber);
+          const label = document.createElement("label");
+          label.className = "frame-option";
+
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.name = "frameOption";
+          checkbox.value = value;
+          checkbox.checked = selected.has(value);
+
+          label.append(checkbox, `F#${frameNumber}`);
+          els.frame.append(label);
         });
-        els.frame.disabled = frameNumbers.length === 0;
+        els.frame.setAttribute("aria-disabled", frameNumbers.length === 0 ? "true" : "false");
         els.selectAllFrames.disabled = frameNumbers.length === 0;
         els.clearFrames.disabled = frameNumbers.length === 0;
         els.frameText.textContent = frameNumbers.length > 0
@@ -699,7 +729,10 @@
       }
 
       function getSelectedFrames() {
-        return Array.from(els.frame.selectedOptions, option => option.value);
+        return Array.from(
+          els.frame.querySelectorAll('input[name="frameOption"]:checked'),
+          checkbox => checkbox.value
+        );
       }
 
       function applyFrameFilter() {
@@ -970,16 +1003,20 @@
         els.workerMessage.textContent = "Cancelling after current stream chunk.";
       });
 
-      els.frame.addEventListener("change", applyFrameFilter);
+      els.frame.addEventListener("change", event => {
+        if (event.target.matches('input[name="frameOption"]')) {
+          applyFrameFilter();
+        }
+      });
       els.selectAllFrames.addEventListener("click", () => {
-        Array.from(els.frame.options).forEach(option => {
-          option.selected = true;
+        els.frame.querySelectorAll('input[name="frameOption"]').forEach(checkbox => {
+          checkbox.checked = true;
         });
         applyFrameFilter();
       });
       els.clearFrames.addEventListener("click", () => {
-        Array.from(els.frame.options).forEach(option => {
-          option.selected = false;
+        els.frame.querySelectorAll('input[name="frameOption"]').forEach(checkbox => {
+          checkbox.checked = false;
         });
         applyFrameFilter();
       });
