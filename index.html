@@ -310,6 +310,19 @@
       font-weight: 650;
     }
 
+    .selection-notice {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #24291f;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .selection-notice[hidden] {
+      display: none;
+    }
+
     .frame-summary {
       display: grid;
       grid-template-columns: auto minmax(0, 1fr);
@@ -559,6 +572,9 @@
         <span><strong id="resultCount">0</strong> matching lines</span>
         <span id="domCount">0 DOM rows</span>
       </div>
+      <div id="selectionNotice" class="selection-notice" hidden>
+        Scan complete. Select one or more Frames from the left panel to display matching log lines.
+      </div>
       <div id="frameSummary" class="frame-summary" hidden>
         <div id="summaryTitle" class="summary-title">Frame</div>
         <div id="summaryList" class="summary-list"></div>
@@ -605,6 +621,7 @@
         resultCount: document.getElementById("resultCount"),
         domCount: document.getElementById("domCount"),
         workerMessage: document.getElementById("workerMessage"),
+        selectionNotice: document.getElementById("selectionNotice"),
         frameSummary: document.getElementById("frameSummary"),
         summaryTitle: document.getElementById("summaryTitle"),
         summaryList: document.getElementById("summaryList"),
@@ -685,6 +702,7 @@
           els.empty.textContent = "No matching lines for the selected Frames.";
         }
         els.empty.hidden = isScanning || visibleResults.length > 0;
+        els.selectionNotice.hidden = isScanning || allResults.length === 0 || getSelectedFrames().length > 0;
       }
 
       function updateStats() {
