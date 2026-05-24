@@ -6,6 +6,8 @@ const BATCH_SIZE = 1200;
 const PROGRESS_INTERVAL_MS = 120;
 const BIND_COMMAND_RE = /\bvkCmdBind[A-Za-z0-9_]*\b/;
 const SET_COMMAND_RE = /\bvkCmdSet[A-Za-z0-9_]*\b/;
+const FRAME_RE = /\[F#(\d+)\]/;
+const API_CALL_RE = /\b(vk[A-Za-z0-9_]+)\s*\(/;
 
 self.onmessage = event => {
   const message = event.data;
@@ -35,6 +37,7 @@ async function scanFile(file, filters) {
 
   const normalized = normalizeFilters(filters);
   const stats = { read: 0, matched: 0, skipped: 0 };
+  const frames = new Set();
   const batch = [];
   let lineNumber = 0;
   let carry = "";
@@ -59,7 +62,7 @@ async function scanFile(file, filters) {
       for (const line of lines) {
         if (cancelled) break;
         lineNumber += 1;
-        processLine(line, lineNumber, normalized, stats, batch);
+        processLine(line, lineNumber, normalized, stats, batch, frames);
         if (batch.length >= BATCH_SIZE) {
           flushBatch(batch, stats);
         }
@@ -74,12 +77,17 @@ async function scanFile(file, filters) {
 
     if (!cancelled && carry.length > 0) {
       lineNumber += 1;
-      processLine(carry, lineNumber, normalized, stats, batch);
+      processLine(carry, lineNumber, normalized, stats, batch, frames);
     }
 
     flushBatch(batch, stats);
     postProgress(stats, file.size || approxBytesRead);
-    self.postMessage({ type: "done", stats, wasCancelled: cancelled });
+    self.postMessage({
+      type: "done",
+      stats,
+      frames: Array.from(frames).sort((a, b) => a - b),
+      wasCancelled: cancelled
+    });
   } finally {
     try {
       await reader.cancel();
@@ -103,8 +111,12 @@ function normalizeFilters(filters) {
   };
 }
 
-function processLine(line, lineNumber, filters, stats, batch) {
+function processLine(line, lineNumber, filters, stats, batch, frames) {
   stats.read += 1;
+  const frameNumber = getFrameNumber(line);
+  if (frameNumber !== null) {
+    frames.add(frameNumber);
+  }
 
   if (filters.hideBind && BIND_COMMAND_RE.test(line)) {
     stats.skipped += 1;
@@ -131,7 +143,22 @@ function processLine(line, lineNumber, filters, stats, batch) {
   }
 
   stats.matched += 1;
-  batch.push({ lineNumber, text: line });
+  batch.push({
+    lineNumber,
+    text: line,
+    frameNumber,
+    apiName: getApiName(line)
+  });
+}
+
+function getFrameNumber(line) {
+  const match = FRAME_RE.exec(line);
+  return match ? Number(match[1]) : null;
+}
+
+function getApiName(line) {
+  const match = API_CALL_RE.exec(line);
+  return match ? match[1] : null;
 }
 
 function flushBatch(batch, stats) {

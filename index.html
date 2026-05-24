@@ -258,7 +258,7 @@
       min-width: 0;
       min-height: 0;
       display: grid;
-      grid-template-rows: auto 1fr;
+      grid-template-rows: auto auto 1fr;
       background: #10130f;
     }
 
@@ -277,6 +277,54 @@
     .viewer-toolbar strong {
       color: var(--text);
       font-weight: 650;
+    }
+
+    .frame-summary {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px 14px;
+      align-items: center;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #1c221b;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .frame-summary[hidden] {
+      display: none;
+    }
+
+    .summary-title {
+      color: var(--text);
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .summary-list {
+      display: flex;
+      gap: 8px;
+      min-width: 0;
+      overflow: hidden;
+      flex-wrap: wrap;
+    }
+
+    .summary-pill {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      max-width: 100%;
+      padding: 3px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #111410;
+      font-family: var(--mono);
+      line-height: 1.4;
+    }
+
+    .summary-pill b {
+      color: var(--accent);
+      font-weight: 750;
     }
 
     .viewer {
@@ -454,6 +502,14 @@
       </section>
 
       <section class="control-group">
+        <label for="frameSelect">Frame</label>
+        <select id="frameSelect" disabled>
+          <option value="all">顯示全部</option>
+        </select>
+        <div id="frameText" class="log">Scan a log to build the frame index.</div>
+      </section>
+
+      <section class="control-group">
         <div class="label">Stats</div>
         <div class="stats">
           <div class="stat"><b>Read</b><span id="readStat">0</span></div>
@@ -469,6 +525,10 @@
       <div class="viewer-toolbar">
         <span><strong id="resultCount">0</strong> matching lines</span>
         <span id="domCount">0 DOM rows</span>
+      </div>
+      <div id="frameSummary" class="frame-summary" hidden>
+        <div id="summaryTitle" class="summary-title">Frame</div>
+        <div id="summaryList" class="summary-list"></div>
       </div>
       <div id="viewer" class="viewer" tabindex="0" aria-label="Filtered log lines">
         <div id="spacer" class="spacer"></div>
@@ -496,6 +556,8 @@
         focusOnly: document.getElementById("focusOnlyInput"),
         hideBind: document.getElementById("hideBindInput"),
         hideSet: document.getElementById("hideSetInput"),
+        frame: document.getElementById("frameSelect"),
+        frameText: document.getElementById("frameText"),
         stateDot: document.getElementById("stateDot"),
         stateText: document.getElementById("stateText"),
         fileText: document.getElementById("fileText"),
@@ -508,6 +570,9 @@
         resultCount: document.getElementById("resultCount"),
         domCount: document.getElementById("domCount"),
         workerMessage: document.getElementById("workerMessage"),
+        frameSummary: document.getElementById("frameSummary"),
+        summaryTitle: document.getElementById("summaryTitle"),
+        summaryList: document.getElementById("summaryList"),
         viewer: document.getElementById("viewer"),
         spacer: document.getElementById("spacer"),
         rows: document.getElementById("rows"),
@@ -516,7 +581,9 @@
 
       let worker = null;
       let selectedFile = null;
-      let results = [];
+      let allResults = [];
+      let visibleResults = [];
+      let frames = [];
       let stats = { read: 0, matched: 0, skipped: 0 };
       let renderQueued = false;
       let lastRenderedStart = -1;
@@ -557,11 +624,15 @@
       }
 
       function resetResults() {
-        results = [];
+        allResults = [];
+        visibleResults = [];
+        frames = [];
         stats = { read: 0, matched: 0, skipped: 0 };
         els.viewer.scrollTop = 0;
         els.spacer.style.height = "0px";
         els.rows.textContent = "";
+        resetFrameSelect();
+        updateFrameSummary();
         updateEmptyState();
         lastRenderedStart = -1;
         lastRenderedEnd = -1;
@@ -569,15 +640,85 @@
       }
 
       function updateEmptyState() {
-        els.empty.hidden = isScanning || results.length > 0;
+        els.empty.textContent = allResults.length > 0
+          ? "No matching lines for the selected frame."
+          : "Choose a Vulkan log file and start scanning.";
+        els.empty.hidden = isScanning || visibleResults.length > 0;
       }
 
       function updateStats() {
         els.readStat.textContent = formatCount(stats.read);
         els.matchStat.textContent = formatCount(stats.matched);
         els.skipStat.textContent = formatCount(stats.skipped);
-        els.shownStat.textContent = formatCount(results.length);
-        els.resultCount.textContent = formatCount(results.length);
+        els.shownStat.textContent = formatCount(visibleResults.length);
+        els.resultCount.textContent = formatCount(visibleResults.length);
+      }
+
+      function resetFrameSelect() {
+        els.frame.replaceChildren(new Option("顯示全部", "all"));
+        els.frame.value = "all";
+        els.frame.disabled = true;
+        els.frameText.textContent = "Scan a log to build the frame index.";
+      }
+
+      function populateFrameSelect(frameNumbers) {
+        const selected = els.frame.value;
+        els.frame.replaceChildren(new Option("顯示全部", "all"));
+        frameNumbers.forEach(frameNumber => {
+          els.frame.append(new Option(`F#${frameNumber}`, String(frameNumber)));
+        });
+        els.frame.disabled = frameNumbers.length === 0;
+        els.frame.value = frameNumbers.some(frameNumber => String(frameNumber) === selected)
+          ? selected
+          : "all";
+        els.frameText.textContent = frameNumbers.length > 0
+          ? `${formatCount(frameNumbers.length)} frames indexed.`
+          : "No [F#...] frame markers found.";
+      }
+
+      function applyFrameFilter() {
+        const selectedFrame = els.frame.value;
+        visibleResults = selectedFrame === "all"
+          ? allResults
+          : allResults.filter(item => String(item.frameNumber) === selectedFrame);
+        els.viewer.scrollTop = 0;
+        lastRenderedStart = -1;
+        lastRenderedEnd = -1;
+        updateStats();
+        updateFrameSummary();
+        renderVisibleRows(true);
+      }
+
+      function updateFrameSummary() {
+        const selectedFrame = els.frame.value;
+        if (selectedFrame === "all" || visibleResults.length === 0) {
+          els.frameSummary.hidden = true;
+          els.summaryList.textContent = "";
+          return;
+        }
+
+        const counts = new Map();
+        visibleResults.forEach(item => {
+          if (!item.apiName) return;
+          counts.set(item.apiName, (counts.get(item.apiName) || 0) + 1);
+        });
+
+        const topCalls = Array.from(counts.entries())
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .slice(0, 8);
+
+        els.summaryTitle.textContent = `F#${selectedFrame} top calls`;
+        els.summaryList.replaceChildren(
+          ...topCalls.map(([apiName, count]) => {
+            const pill = document.createElement("span");
+            pill.className = "summary-pill";
+            pill.append(apiName, " ", Object.assign(document.createElement("b"), {
+              textContent: formatCount(count)
+            }));
+            return pill;
+          })
+        );
+        els.frameSummary.hidden = topCalls.length === 0;
       }
 
       function escapeHtml(text) {
@@ -628,7 +769,7 @@
       }
 
       function renderVisibleRows(force = false) {
-        const total = results.length;
+        const total = visibleResults.length;
         els.spacer.style.height = `${total * ROW_HEIGHT}px`;
         updateEmptyState();
 
@@ -646,7 +787,7 @@
 
         const fragment = document.createDocumentFragment();
         for (let i = start; i < end; i += 1) {
-          const item = results[i];
+          const item = visibleResults[i];
           const row = document.createElement("div");
           row.className = "row";
           row.style.height = `${ROW_HEIGHT}px`;
@@ -699,11 +840,18 @@
         worker.onmessage = event => {
           const message = event.data;
           if (message.type === "batch") {
-            results.push(...message.items);
+            allResults.push(...message.items);
+            if (els.frame.value === "all") {
+              visibleResults = allResults;
+            } else {
+              const selectedFrame = els.frame.value;
+              visibleResults.push(...message.items.filter(item => String(item.frameNumber) === selectedFrame));
+            }
             stats.read = message.stats.read;
             stats.matched = message.stats.matched;
             stats.skipped = message.stats.skipped;
             updateStats();
+            updateFrameSummary();
             queueRender();
             return;
           }
@@ -723,6 +871,9 @@
 
           if (message.type === "done") {
             stats = message.stats;
+            frames = Array.isArray(message.frames) ? message.frames : [];
+            populateFrameSelect(frames);
+            applyFrameFilter();
             isScanning = false;
             els.progressBar.style.width = "100%";
             els.progressText.textContent = `Completed. ${formatCount(stats.read)} lines read, ${formatCount(stats.matched)} matched.`;
@@ -748,6 +899,8 @@
         };
 
         worker.onerror = error => {
+          isScanning = false;
+          updateEmptyState();
           els.workerMessage.textContent = error.message || "Worker failed.";
           setState("Error", "error");
           els.start.disabled = false;
@@ -774,6 +927,8 @@
         els.cancel.disabled = true;
         els.workerMessage.textContent = "Cancelling after current stream chunk.";
       });
+
+      els.frame.addEventListener("change", applyFrameFilter);
 
       [els.keyword, els.handle, els.focusOnly, els.hideBind, els.hideSet].forEach(input => {
         input.addEventListener("change", () => {
