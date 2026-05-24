@@ -310,6 +310,20 @@
       font-size: 12px;
     }
 
+    .toolbar-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: end;
+    }
+
+    .toolbar-actions button {
+      min-height: 30px;
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+
     .viewer-toolbar strong {
       color: var(--text);
       font-weight: 650;
@@ -575,7 +589,11 @@
     <section class="viewer-wrap">
       <div class="viewer-toolbar">
         <span><strong id="resultCount">0</strong> matching lines</span>
-        <span id="domCount">0 DOM rows</span>
+        <div class="toolbar-actions">
+          <button id="copyFilteredBtn" class="secondary" disabled>Copy filtered</button>
+          <button id="downloadFilteredBtn" class="secondary" disabled>Download .log</button>
+          <span id="domCount">0 DOM rows</span>
+        </div>
       </div>
       <div id="selectionNotice" class="selection-notice" hidden>
         Scan complete. Select one or more Frames from the left panel to display matching log lines.
@@ -627,6 +645,8 @@
         shownStat: document.getElementById("shownStat"),
         resultCount: document.getElementById("resultCount"),
         domCount: document.getElementById("domCount"),
+        copyFiltered: document.getElementById("copyFilteredBtn"),
+        downloadFiltered: document.getElementById("downloadFilteredBtn"),
         workerMessage: document.getElementById("workerMessage"),
         selectionNotice: document.getElementById("selectionNotice"),
         frameSummary: document.getElementById("frameSummary"),
@@ -718,6 +738,60 @@
         els.skipStat.textContent = formatCount(stats.skipped);
         els.shownStat.textContent = formatCount(visibleResults.length);
         els.resultCount.textContent = formatCount(visibleResults.length);
+        const hasVisibleResults = visibleResults.length > 0;
+        els.copyFiltered.disabled = !hasVisibleResults;
+        els.downloadFiltered.disabled = !hasVisibleResults;
+      }
+
+      function getFilteredLogText() {
+        return visibleResults.map(item => item.text).join("\n") + (visibleResults.length > 0 ? "\n" : "");
+      }
+
+      function getExportFilename() {
+        const baseName = selectedFile
+          ? selectedFile.name.replace(/\.[^.]*$/, "")
+          : "vksieve";
+        const selectedFrames = getSelectedFrames();
+        const framePart = selectedFrames.length === 0
+          ? "filtered"
+          : selectedFrames.length === 1
+            ? `F${selectedFrames[0]}`
+            : `${selectedFrames.length}-frames`;
+        return `${baseName}-${framePart}.log`;
+      }
+
+      async function copyFilteredLogs() {
+        if (visibleResults.length === 0) return;
+        const text = getFilteredLogText();
+        try {
+          await navigator.clipboard.writeText(text);
+          els.workerMessage.textContent = `Copied ${formatCount(visibleResults.length)} filtered lines.`;
+        } catch (_) {
+          const textarea = document.createElement("textarea");
+          textarea.value = text;
+          textarea.setAttribute("readonly", "");
+          textarea.style.position = "fixed";
+          textarea.style.top = "-9999px";
+          document.body.append(textarea);
+          textarea.select();
+          document.execCommand("copy");
+          textarea.remove();
+          els.workerMessage.textContent = `Copied ${formatCount(visibleResults.length)} filtered lines.`;
+        }
+      }
+
+      function downloadFilteredLogs() {
+        if (visibleResults.length === 0) return;
+        const blob = new Blob([getFilteredLogText()], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = getExportFilename();
+        document.body.append(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        els.workerMessage.textContent = `Downloaded ${formatCount(visibleResults.length)} filtered lines.`;
       }
 
       function resetFrameSelect() {
@@ -1059,6 +1133,8 @@
         });
         applyFrameFilter();
       });
+      els.copyFiltered.addEventListener("click", copyFilteredLogs);
+      els.downloadFiltered.addEventListener("click", downloadFilteredLogs);
 
       [els.keyword, els.handle, els.focusOnly, els.hideBind, els.hideSet].forEach(input => {
         input.addEventListener("change", () => {
