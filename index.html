@@ -169,6 +169,9 @@
       min-width: 0;
       color: var(--text);
       font: 12px/1.4 var(--mono);
+      font-weight: 400;
+      letter-spacing: 0;
+      text-transform: none;
     }
 
     .frame-option input {
@@ -445,6 +448,14 @@
       background: rgb(143 209 106 / 8%);
     }
 
+    .row.error-row {
+      background: rgb(224 64 64 / 12%);
+    }
+
+    .row.error-row:hover {
+      background: rgb(224 64 64 / 18%);
+    }
+
     .line-no {
       overflow: hidden;
       padding: 0 10px;
@@ -471,6 +482,21 @@
     mark.handle {
       background: rgb(127 200 255 / 80%);
       color: #07131f;
+    }
+
+    mark.error {
+      background: rgb(230 62 62 / 90%);
+      color: #fff4f4;
+    }
+
+    mark.vkcmd {
+      background: rgb(72 205 220 / 22%);
+      color: #81f2ff;
+    }
+
+    mark.address {
+      background: rgb(236 145 63 / 24%);
+      color: #ffb66d;
     }
 
     .empty {
@@ -595,6 +621,16 @@
       </section>
 
       <section class="control-group">
+        <div class="label">Thread ID</div>
+        <div id="tidList" class="frame-list" aria-disabled="true"></div>
+        <div class="button-row">
+          <button id="selectAllTidsBtn" class="secondary" disabled>Select all</button>
+          <button id="clearTidsBtn" class="secondary" disabled>No filter</button>
+        </div>
+        <div id="tidText" class="log">Scan a log to build the TID index.</div>
+      </section>
+
+      <section class="control-group">
         <div class="label">Stats</div>
         <div class="stats">
           <div class="stat"><b>Read</b><span id="readStat">0</span></div>
@@ -641,6 +677,10 @@
       const BATCH_RENDER_DELAY = 16;
       const BIND_COMMAND_RE = /\bvkCmdBind[A-Za-z0-9_]*\b/;
       const SET_COMMAND_RE = /\bvkCmdSet[A-Za-z0-9_]*\b/;
+      const ERROR_HIGHLIGHT_RE = /\b(?:ERROR|VK_ERROR_[A-Z0-9_]+)\b/g;
+      const VKCMD_HIGHLIGHT_RE = /\bvkCmd[A-Za-z0-9_]*\b/g;
+      const ADDRESS_HIGHLIGHT_RE = /\b0x[0-9a-fA-F]+\b/g;
+      const VULKAN_STATE_ERROR_NOISE_RE = /\b(?:failOp|depthFailOp|stencilFailOp|passOp)\b\s*=/i;
 
       const els = {
         file: document.getElementById("fileInput"),
@@ -655,6 +695,10 @@
         selectAllFrames: document.getElementById("selectAllFramesBtn"),
         clearFrames: document.getElementById("clearFramesBtn"),
         frameText: document.getElementById("frameText"),
+        tid: document.getElementById("tidList"),
+        selectAllTids: document.getElementById("selectAllTidsBtn"),
+        clearTids: document.getElementById("clearTidsBtn"),
+        tidText: document.getElementById("tidText"),
         stateDot: document.getElementById("stateDot"),
         stateText: document.getElementById("stateText"),
         fileText: document.getElementById("fileText"),
@@ -686,6 +730,7 @@
       let visibleResults = [];
       let frameBuckets = new Map();
       let frames = [];
+      let tids = [];
       let stats = { read: 0, matched: 0, skipped: 0 };
       let renderQueued = false;
       let lastRenderedStart = -1;
@@ -731,11 +776,13 @@
         visibleResults = [];
         frameBuckets = new Map();
         frames = [];
+        tids = [];
         stats = { read: 0, matched: 0, skipped: 0 };
         els.viewer.scrollTop = 0;
         els.spacer.style.height = "0px";
         els.rows.textContent = "";
         resetFrameSelect();
+        resetTidSelect();
         updateFrameSummary();
         updateEmptyState();
         lastRenderedStart = -1;
@@ -775,12 +822,18 @@
           ? selectedFile.name.replace(/\.[^.]*$/, "")
           : "vksieve";
         const selectedFrames = getSelectedFrames();
+        const selectedTids = getSelectedTids();
         const framePart = selectedFrames.length === 0
           ? "filtered"
           : selectedFrames.length === 1
             ? `F${selectedFrames[0]}`
             : `${selectedFrames.length}-frames`;
-        return `${baseName}-${framePart}.log`;
+        const tidPart = selectedTids.length === 0
+          ? ""
+          : selectedTids.length === 1
+            ? `-T${selectedTids[0]}`
+            : `-${selectedTids.length}-tids`;
+        return `${baseName}-${framePart}${tidPart}.log`;
       }
 
       function showActionToast(message) {
@@ -872,9 +925,49 @@
           : "No [F#...] frame markers found.";
       }
 
+      function resetTidSelect() {
+        els.tid.replaceChildren();
+        els.tid.setAttribute("aria-disabled", "true");
+        els.selectAllTids.disabled = true;
+        els.clearTids.disabled = true;
+        els.tidText.textContent = "Scan a log to build the TID index.";
+      }
+
+      function populateTidSelect(tidNumbers) {
+        const selected = new Set(getSelectedTids());
+        els.tid.replaceChildren();
+        tidNumbers.forEach(tidNumber => {
+          const value = String(tidNumber);
+          const label = document.createElement("label");
+          label.className = "frame-option";
+
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.name = "tidOption";
+          checkbox.value = value;
+          checkbox.checked = selected.has(value);
+
+          label.append(checkbox, `TID ${tidNumber}`);
+          els.tid.append(label);
+        });
+        els.tid.setAttribute("aria-disabled", tidNumbers.length === 0 ? "true" : "false");
+        els.selectAllTids.disabled = tidNumbers.length === 0;
+        els.clearTids.disabled = tidNumbers.length === 0;
+        els.tidText.textContent = tidNumbers.length > 0
+          ? `${formatCount(tidNumbers.length)} TIDs indexed. Optional filter.`
+          : "No Android TID prefix found.";
+      }
+
       function getSelectedFrames() {
         return Array.from(
           els.frame.querySelectorAll('input[name="frameOption"]:checked'),
+          checkbox => checkbox.value
+        );
+      }
+
+      function getSelectedTids() {
+        return Array.from(
+          els.tid.querySelectorAll('input[name="tidOption"]:checked'),
           checkbox => checkbox.value
         );
       }
@@ -891,8 +984,10 @@
 
       function applyFrameFilter() {
         const selectedFrames = getSelectedFrames();
+        const selectedTids = getSelectedTids();
         visibleResults = selectedFrames
           .flatMap(frameNumber => frameBuckets.get(frameNumber) || [])
+          .filter(item => selectedTids.length === 0 || selectedTids.includes(String(item.tid)))
           .filter(passesLiveNoiseFilters);
         if (selectedFrames.length === 0) {
           els.frameText.textContent = frames.length > 0
@@ -902,6 +997,15 @@
           els.frameText.textContent = `All ${formatCount(frames.length)} Frames selected: ${formatCount(visibleResults.length)} matching lines.`;
         } else {
           els.frameText.textContent = `${formatCount(selectedFrames.length)} Frames selected: ${formatCount(visibleResults.length)} matching lines.`;
+        }
+        if (selectedTids.length === 0) {
+          els.tidText.textContent = tids.length > 0
+            ? `${formatCount(tids.length)} TIDs indexed. Optional filter.`
+            : "No Android TID prefix found.";
+        } else if (selectedTids.length === tids.length) {
+          els.tidText.textContent = `All ${formatCount(tids.length)} TIDs selected.`;
+        } else {
+          els.tidText.textContent = `${formatCount(selectedTids.length)} TIDs selected.`;
         }
         els.viewer.scrollTop = 0;
         lastRenderedStart = -1;
@@ -959,23 +1063,79 @@
         return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       }
 
+      function hasSmartError(raw) {
+        ERROR_HIGHLIGHT_RE.lastIndex = 0;
+        return ERROR_HIGHLIGHT_RE.test(raw) && !VULKAN_STATE_ERROR_NOISE_RE.test(raw);
+      }
+
+      function collectMatches(raw, regex, className) {
+        regex.lastIndex = 0;
+        const matches = [];
+        for (const match of raw.matchAll(regex)) {
+          matches.push({
+            start: match.index,
+            end: match.index + match[0].length,
+            className
+          });
+        }
+        return matches;
+      }
+
+      function collectTermMatches(raw, term, className) {
+        if (!term) return [];
+        const regex = new RegExp(escapeRegExp(term), "gi");
+        return collectMatches(raw, regex, className);
+      }
+
+      function addNonOverlapping(matches, used, raw, regex, className) {
+        collectMatches(raw, regex, className).forEach(match => {
+          for (let index = match.start; index < match.end; index += 1) {
+            if (used[index]) return;
+          }
+          for (let index = match.start; index < match.end; index += 1) {
+            used[index] = true;
+          }
+          matches.push(match);
+        });
+      }
+
+      function addTermNonOverlapping(matches, used, raw, term, className) {
+        collectTermMatches(raw, term, className).forEach(match => {
+          for (let index = match.start; index < match.end; index += 1) {
+            if (used[index]) return;
+          }
+          for (let index = match.start; index < match.end; index += 1) {
+            used[index] = true;
+          }
+          matches.push(match);
+        });
+      }
+
       function highlightLine(raw) {
-        let html = escapeHtml(raw);
-        const terms = [];
-        if (activeQuery.keyword) {
-          terms.push({ value: activeQuery.keyword, className: "" });
+        const matches = [];
+        const used = new Array(raw.length).fill(false);
+        if (hasSmartError(raw)) {
+          addNonOverlapping(matches, used, raw, ERROR_HIGHLIGHT_RE, "error");
         }
         if (activeQuery.focusHandle) {
-          terms.push({ value: activeQuery.focusHandle, className: "handle" });
+          addTermNonOverlapping(matches, used, raw, activeQuery.focusHandle, "handle");
         }
-        terms
-          .filter(term => term.value.length > 0)
-          .sort((a, b) => b.value.length - a.value.length)
-          .forEach(term => {
-            const re = new RegExp(escapeRegExp(escapeHtml(term.value)), "gi");
-            const classAttr = term.className ? ` class="${term.className}"` : "";
-            html = html.replace(re, match => `<mark${classAttr}>${match}</mark>`);
-          });
+        addNonOverlapping(matches, used, raw, VKCMD_HIGHLIGHT_RE, "vkcmd");
+        addNonOverlapping(matches, used, raw, ADDRESS_HIGHLIGHT_RE, "address");
+        if (activeQuery.keyword) {
+          addTermNonOverlapping(matches, used, raw, activeQuery.keyword, "");
+        }
+
+        matches.sort((a, b) => a.start - b.start);
+        let cursor = 0;
+        let html = "";
+        matches.forEach(match => {
+          html += escapeHtml(raw.slice(cursor, match.start));
+          const classAttr = match.className ? ` class="${match.className}"` : "";
+          html += `<mark${classAttr}>${escapeHtml(raw.slice(match.start, match.end))}</mark>`;
+          cursor = match.end;
+        });
+        html += escapeHtml(raw.slice(cursor));
         return html;
       }
 
@@ -1013,7 +1173,7 @@
         for (let i = start; i < end; i += 1) {
           const item = visibleResults[i];
           const row = document.createElement("div");
-          row.className = "row";
+          row.className = hasSmartError(item.text) ? "row error-row" : "row";
           row.style.height = `${ROW_HEIGHT}px`;
 
           const number = document.createElement("div");
@@ -1073,8 +1233,10 @@
               }
               frameBuckets.get(frameKey).push(item);
             });
+            const selectedTids = getSelectedTids();
             visibleResults = getSelectedFrames()
               .flatMap(frameNumber => frameBuckets.get(frameNumber) || [])
+              .filter(item => selectedTids.length === 0 || selectedTids.includes(String(item.tid)))
               .filter(passesLiveNoiseFilters);
             stats.read = message.stats.read;
             stats.matched = message.stats.matched;
@@ -1102,7 +1264,9 @@
             stats = message.stats;
             isScanning = false;
             frames = Array.isArray(message.frames) ? message.frames : [];
+            tids = Array.isArray(message.tids) ? message.tids : [];
             populateFrameSelect(frames);
+            populateTidSelect(tids);
             applyFrameFilter();
             els.progressBar.style.width = "100%";
             els.progressText.textContent = `Completed. ${formatCount(stats.read)} lines read, ${formatCount(stats.matched)} matched.`;
@@ -1174,6 +1338,23 @@
       });
       els.clearFrames.addEventListener("click", () => {
         els.frame.querySelectorAll('input[name="frameOption"]').forEach(checkbox => {
+          checkbox.checked = false;
+        });
+        applyFrameFilter();
+      });
+      els.tid.addEventListener("change", event => {
+        if (event.target.matches('input[name="tidOption"]')) {
+          applyFrameFilter();
+        }
+      });
+      els.selectAllTids.addEventListener("click", () => {
+        els.tid.querySelectorAll('input[name="tidOption"]').forEach(checkbox => {
+          checkbox.checked = true;
+        });
+        applyFrameFilter();
+      });
+      els.clearTids.addEventListener("click", () => {
+        els.tid.querySelectorAll('input[name="tidOption"]').forEach(checkbox => {
           checkbox.checked = false;
         });
         applyFrameFilter();
