@@ -354,6 +354,10 @@
       pointer-events: none;
     }
 
+    .empty[hidden] {
+      display: none;
+    }
+
     .log {
       margin-top: 10px;
       color: var(--muted);
@@ -518,6 +522,7 @@
       let lastRenderedStart = -1;
       let lastRenderedEnd = -1;
       let lastRenderAt = 0;
+      let isScanning = false;
       let activeQuery = { keyword: "", focusHandle: "", focusOnly: false };
 
       function formatCount(value) {
@@ -557,10 +562,14 @@
         els.viewer.scrollTop = 0;
         els.spacer.style.height = "0px";
         els.rows.textContent = "";
-        els.empty.hidden = false;
+        updateEmptyState();
         lastRenderedStart = -1;
         lastRenderedEnd = -1;
         updateStats();
+      }
+
+      function updateEmptyState() {
+        els.empty.hidden = isScanning || results.length > 0;
       }
 
       function updateStats() {
@@ -621,7 +630,7 @@
       function renderVisibleRows(force = false) {
         const total = results.length;
         els.spacer.style.height = `${total * ROW_HEIGHT}px`;
-        els.empty.hidden = total !== 0;
+        updateEmptyState();
 
         const viewportHeight = els.viewer.clientHeight || 1;
         const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT);
@@ -679,6 +688,8 @@
         };
 
         worker = new Worker("worker.js");
+        isScanning = true;
+        updateEmptyState();
         setState("Scanning", "running");
         els.start.disabled = true;
         els.cancel.disabled = false;
@@ -712,6 +723,7 @@
 
           if (message.type === "done") {
             stats = message.stats;
+            isScanning = false;
             els.progressBar.style.width = "100%";
             els.progressText.textContent = `Completed. ${formatCount(stats.read)} lines read, ${formatCount(stats.matched)} matched.`;
             els.workerMessage.textContent = message.wasCancelled ? "Scan cancelled." : "";
@@ -725,6 +737,8 @@
           }
 
           if (message.type === "error") {
+            isScanning = false;
+            updateEmptyState();
             els.workerMessage.textContent = message.error;
             setState("Error", "error");
             els.start.disabled = false;
