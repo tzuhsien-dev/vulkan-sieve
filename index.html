@@ -196,6 +196,9 @@
       color: var(--text);
       font-size: 13px;
       line-height: 1.35;
+      font-weight: 400;
+      letter-spacing: 0;
+      text-transform: none;
     }
 
     .check input {
@@ -209,6 +212,8 @@
       font-size: 11px;
       margin-top: 2px;
       font-family: var(--mono);
+      letter-spacing: 0;
+      text-transform: none;
     }
 
     .button-row {
@@ -595,6 +600,8 @@
       const MAX_RENDERED_ROWS = 90;
       const RENDER_BUFFER = 20;
       const BATCH_RENDER_DELAY = 16;
+      const BIND_COMMAND_RE = /\bvkCmdBind[A-Za-z0-9_]*\b/;
+      const SET_COMMAND_RE = /\bvkCmdSet[A-Za-z0-9_]*\b/;
 
       const els = {
         file: document.getElementById("fileInput"),
@@ -753,9 +760,21 @@
         );
       }
 
+      function passesLiveNoiseFilters(item) {
+        if (els.hideBind.checked && BIND_COMMAND_RE.test(item.text)) {
+          return false;
+        }
+        if (els.hideSet.checked && SET_COMMAND_RE.test(item.text)) {
+          return false;
+        }
+        return true;
+      }
+
       function applyFrameFilter() {
         const selectedFrames = getSelectedFrames();
-        visibleResults = selectedFrames.flatMap(frameNumber => frameBuckets.get(frameNumber) || []);
+        visibleResults = selectedFrames
+          .flatMap(frameNumber => frameBuckets.get(frameNumber) || [])
+          .filter(passesLiveNoiseFilters);
         if (selectedFrames.length === 0) {
           els.frameText.textContent = frames.length > 0
             ? `${formatCount(frames.length)} frames indexed. Select one or more Frames.`
@@ -935,7 +954,9 @@
               }
               frameBuckets.get(frameKey).push(item);
             });
-            visibleResults = getSelectedFrames().flatMap(frameNumber => frameBuckets.get(frameNumber) || []);
+            visibleResults = getSelectedFrames()
+              .flatMap(frameNumber => frameBuckets.get(frameNumber) || [])
+              .filter(passesLiveNoiseFilters);
             stats.read = message.stats.read;
             stats.matched = message.stats.matched;
             stats.skipped = message.stats.skipped;
@@ -1042,7 +1063,12 @@
       [els.keyword, els.handle, els.focusOnly, els.hideBind, els.hideSet].forEach(input => {
         input.addEventListener("change", () => {
           if (selectedFile && !worker) {
-            els.workerMessage.textContent = "Filters changed. Start scan again to apply them.";
+            if (input === els.hideBind || input === els.hideSet) {
+              applyFrameFilter();
+              els.workerMessage.textContent = "Noise filters applied to current results.";
+            } else {
+              els.workerMessage.textContent = "Filters changed. Start scan again to apply them.";
+            }
           }
         });
       });
