@@ -678,6 +678,13 @@
           : "No [F#...] frame markers found.";
       }
 
+      function selectDefaultFrameAfterScan() {
+        const firstFrameWithResults = frameBuckets.keys().next().value;
+        els.frame.value = firstFrameWithResults === undefined
+          ? "all"
+          : firstFrameWithResults;
+      }
+
       function applyFrameFilter() {
         const selectedFrame = els.frame.value;
         visibleResults = selectedFrame === "all"
@@ -889,10 +896,15 @@
             isScanning = false;
             frames = Array.isArray(message.frames) ? message.frames : [];
             populateFrameSelect(frames);
+            selectDefaultFrameAfterScan();
             applyFrameFilter();
             els.progressBar.style.width = "100%";
             els.progressText.textContent = `Completed. ${formatCount(stats.read)} lines read, ${formatCount(stats.matched)} matched.`;
-            els.workerMessage.textContent = message.wasCancelled ? "Scan cancelled." : "";
+            els.workerMessage.textContent = message.wasCancelled
+              ? "Scan cancelled."
+              : els.frame.value === "all"
+                ? ""
+                : `Auto-selected F#${els.frame.value}. Use Frame -> 顯示全部 to inspect all matching lines.`;
             setState(message.wasCancelled ? "Cancelled" : "Done");
             els.start.disabled = false;
             els.cancel.disabled = true;
