@@ -145,6 +145,16 @@
       outline: none;
     }
 
+    select[multiple] {
+      height: 150px;
+      padding: 6px;
+      font-family: var(--mono);
+    }
+
+    select[multiple] option {
+      padding: 4px 6px;
+    }
+
     input[type="search"],
     input[type="text"] {
       font-family: var(--mono);
@@ -503,9 +513,11 @@
 
       <section class="control-group">
         <label for="frameSelect">Frame</label>
-        <select id="frameSelect" disabled>
-          <option value="all">顯示全部</option>
-        </select>
+        <select id="frameSelect" multiple disabled></select>
+        <div class="button-row">
+          <button id="selectAllFramesBtn" class="secondary" disabled>Show all</button>
+          <button id="clearFramesBtn" class="secondary" disabled>Clear</button>
+        </div>
         <div id="frameText" class="log">Scan a log to build the frame index.</div>
       </section>
 
@@ -557,6 +569,8 @@
         hideBind: document.getElementById("hideBindInput"),
         hideSet: document.getElementById("hideSetInput"),
         frame: document.getElementById("frameSelect"),
+        selectAllFrames: document.getElementById("selectAllFramesBtn"),
+        clearFrames: document.getElementById("clearFramesBtn"),
         frameText: document.getElementById("frameText"),
         stateDot: document.getElementById("stateDot"),
         stateText: document.getElementById("stateText"),
@@ -642,9 +656,13 @@
       }
 
       function updateEmptyState() {
-        els.empty.textContent = allResults.length > 0
-          ? "No matching lines for the selected frame."
-          : "Choose a Vulkan log file and start scanning.";
+        if (allResults.length === 0) {
+          els.empty.textContent = "Choose a Vulkan log file and start scanning.";
+        } else if (getSelectedFrames().length === 0) {
+          els.empty.textContent = "Select one or more Frames to display matching log lines.";
+        } else {
+          els.empty.textContent = "No matching lines for the selected Frames.";
+        }
         els.empty.hidden = isScanning || visibleResults.length > 0;
       }
 
@@ -657,44 +675,45 @@
       }
 
       function resetFrameSelect() {
-        els.frame.replaceChildren(new Option("顯示全部", "all"));
-        els.frame.value = "all";
+        els.frame.replaceChildren();
         els.frame.disabled = true;
+        els.selectAllFrames.disabled = true;
+        els.clearFrames.disabled = true;
         els.frameText.textContent = "Scan a log to build the frame index.";
       }
 
       function populateFrameSelect(frameNumbers) {
-        const selected = els.frame.value;
-        els.frame.replaceChildren(new Option("顯示全部", "all"));
+        const selected = new Set(getSelectedFrames());
+        els.frame.replaceChildren();
         frameNumbers.forEach(frameNumber => {
-          els.frame.append(new Option(`F#${frameNumber}`, String(frameNumber)));
+          const option = new Option(`F#${frameNumber}`, String(frameNumber));
+          option.selected = selected.has(option.value);
+          els.frame.append(option);
         });
         els.frame.disabled = frameNumbers.length === 0;
-        els.frame.value = frameNumbers.some(frameNumber => String(frameNumber) === selected)
-          ? selected
-          : "all";
+        els.selectAllFrames.disabled = frameNumbers.length === 0;
+        els.clearFrames.disabled = frameNumbers.length === 0;
         els.frameText.textContent = frameNumbers.length > 0
-          ? `${formatCount(frameNumbers.length)} frames indexed.`
+          ? `${formatCount(frameNumbers.length)} frames indexed. Select one or more Frames.`
           : "No [F#...] frame markers found.";
       }
 
-      function selectDefaultFrameAfterScan() {
-        const firstFrameWithResults = frameBuckets.keys().next().value;
-        els.frame.value = firstFrameWithResults === undefined
-          ? "all"
-          : firstFrameWithResults;
+      function getSelectedFrames() {
+        return Array.from(els.frame.selectedOptions, option => option.value);
       }
 
       function applyFrameFilter() {
-        const selectedFrame = els.frame.value;
-        visibleResults = selectedFrame === "all"
-          ? allResults
-          : frameBuckets.get(selectedFrame) || [];
-        els.frameText.textContent = selectedFrame === "all"
-          ? frames.length > 0
-            ? `${formatCount(frames.length)} frames indexed.`
-            : "No [F#...] frame markers found."
-          : `F#${selectedFrame}: ${formatCount(visibleResults.length)} matching lines.`;
+        const selectedFrames = getSelectedFrames();
+        visibleResults = selectedFrames.flatMap(frameNumber => frameBuckets.get(frameNumber) || []);
+        if (selectedFrames.length === 0) {
+          els.frameText.textContent = frames.length > 0
+            ? `${formatCount(frames.length)} frames indexed. Select one or more Frames.`
+            : "No [F#...] frame markers found.";
+        } else if (selectedFrames.length === frames.length) {
+          els.frameText.textContent = `All ${formatCount(frames.length)} Frames selected: ${formatCount(visibleResults.length)} matching lines.`;
+        } else {
+          els.frameText.textContent = `${formatCount(selectedFrames.length)} Frames selected: ${formatCount(visibleResults.length)} matching lines.`;
+        }
         els.viewer.scrollTop = 0;
         lastRenderedStart = -1;
         lastRenderedEnd = -1;
@@ -704,8 +723,8 @@
       }
 
       function updateFrameSummary() {
-        const selectedFrame = els.frame.value;
-        if (selectedFrame === "all" || visibleResults.length === 0) {
+        const selectedFrames = getSelectedFrames();
+        if (selectedFrames.length === 0 || visibleResults.length === 0) {
           els.frameSummary.hidden = true;
           els.summaryList.textContent = "";
           return;
@@ -721,7 +740,9 @@
           .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
           .slice(0, 8);
 
-        els.summaryTitle.textContent = `F#${selectedFrame} top calls`;
+        els.summaryTitle.textContent = selectedFrames.length === 1
+          ? `F#${selectedFrames[0]} top calls`
+          : `${selectedFrames.length} Frames top calls`;
         els.summaryList.replaceChildren(
           ...topCalls.map(([apiName, count]) => {
             const pill = document.createElement("span");
@@ -863,12 +884,7 @@
               }
               frameBuckets.get(frameKey).push(item);
             });
-            if (els.frame.value === "all") {
-              visibleResults = allResults;
-            } else {
-              const selectedFrame = els.frame.value;
-              visibleResults = frameBuckets.get(selectedFrame) || [];
-            }
+            visibleResults = getSelectedFrames().flatMap(frameNumber => frameBuckets.get(frameNumber) || []);
             stats.read = message.stats.read;
             stats.matched = message.stats.matched;
             stats.skipped = message.stats.skipped;
@@ -896,15 +912,14 @@
             isScanning = false;
             frames = Array.isArray(message.frames) ? message.frames : [];
             populateFrameSelect(frames);
-            selectDefaultFrameAfterScan();
             applyFrameFilter();
             els.progressBar.style.width = "100%";
             els.progressText.textContent = `Completed. ${formatCount(stats.read)} lines read, ${formatCount(stats.matched)} matched.`;
             els.workerMessage.textContent = message.wasCancelled
               ? "Scan cancelled."
-              : els.frame.value === "all"
-                ? ""
-                : `Auto-selected F#${els.frame.value}. Use Frame -> 顯示全部 to inspect all matching lines.`;
+              : frames.length > 0
+                ? "Scan complete. Select one or more Frames to inspect matching lines."
+                : "";
             setState(message.wasCancelled ? "Cancelled" : "Done");
             els.start.disabled = false;
             els.cancel.disabled = true;
@@ -956,6 +971,18 @@
       });
 
       els.frame.addEventListener("change", applyFrameFilter);
+      els.selectAllFrames.addEventListener("click", () => {
+        Array.from(els.frame.options).forEach(option => {
+          option.selected = true;
+        });
+        applyFrameFilter();
+      });
+      els.clearFrames.addEventListener("click", () => {
+        Array.from(els.frame.options).forEach(option => {
+          option.selected = false;
+        });
+        applyFrameFilter();
+      });
 
       [els.keyword, els.handle, els.focusOnly, els.hideBind, els.hideSet].forEach(input => {
         input.addEventListener("change", () => {
