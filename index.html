@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VkSieve</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #151815;
+      --panel: #20251f;
+      --panel-2: #282e27;
+      --text: #eef4ea;
+      --muted: #aeb8a8;
+      --line: #3a4338;
+      --accent: #8fd16a;
+      --accent-2: #5fb3d9;
+      --warn: #e8b45c;
+      --danger: #e07070;
+      --mark: #f1d66a;
+      --handle: #7fc8ff;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+    }
+
+    body {
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: #111410;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .tagline {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .status {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      justify-content: end;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--muted);
+      display: inline-block;
+      margin-right: 7px;
+    }
+
+    .dot.running {
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgb(143 209 106 / 14%);
+    }
+
+    .dot.error {
+      background: var(--danger);
+    }
+
+    main {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+    }
+
+    aside {
+      min-height: 0;
+      overflow: auto;
+      border-right: 1px solid var(--line);
+      background: var(--panel);
+      padding: 16px;
+    }
+
+    .control-group {
+      padding: 0 0 16px;
+      margin: 0 0 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .control-group:last-child {
+      border-bottom: 0;
+    }
+
+    label,
+    .label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    input[type="file"],
+    input[type="search"],
+    input[type="text"],
+    select {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #141813;
+      color: var(--text);
+      padding: 8px 10px;
+      font: 13px var(--sans);
+      outline: none;
+    }
+
+    input[type="search"],
+    input[type="text"] {
+      font-family: var(--mono);
+    }
+
+    input:focus,
+    select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgb(143 209 106 / 12%);
+    }
+
+    .check {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 10px;
+      align-items: start;
+      margin: 10px 0;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .check input {
+      margin: 1px 0 0;
+      accent-color: var(--accent);
+    }
+
+    .check small {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      margin-top: 2px;
+      font-family: var(--mono);
+    }
+
+    .button-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    button {
+      min-height: 38px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #10200c;
+      font-weight: 750;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: transparent;
+      border-color: var(--line);
+      color: var(--text);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: .48;
+    }
+
+    .progress {
+      height: 7px;
+      margin-top: 10px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #111410;
+      border: 1px solid var(--line);
+    }
+
+    .progress > span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      transition: width 120ms linear;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .stat {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel-2);
+    }
+
+    .stat b {
+      display: block;
+      margin-bottom: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+    }
+
+    .stat span {
+      font-family: var(--mono);
+      font-size: 14px;
+    }
+
+    .viewer-wrap {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      background: #10130f;
+    }
+
+    .viewer-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #171b16;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .viewer-toolbar strong {
+      color: var(--text);
+      font-weight: 650;
+    }
+
+    .viewer {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      font: 12px/24px var(--mono);
+      contain: strict;
+    }
+
+    .spacer {
+      position: relative;
+      width: 1px;
+      opacity: 0;
+    }
+
+    .rows {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      will-change: transform;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      height: 24px;
+      border-bottom: 1px solid rgb(58 67 56 / 45%);
+      white-space: pre;
+    }
+
+    .row:hover {
+      background: rgb(143 209 106 / 8%);
+    }
+
+    .line-no {
+      overflow: hidden;
+      padding: 0 10px;
+      border-right: 1px solid rgb(58 67 56 / 65%);
+      color: #85907f;
+      text-align: right;
+      user-select: none;
+    }
+
+    .line-text {
+      overflow: hidden;
+      padding: 0 12px;
+      color: #dce7d6;
+      text-overflow: clip;
+    }
+
+    mark {
+      padding: 0 1px;
+      border-radius: 2px;
+      background: rgb(241 214 106 / 85%);
+      color: #171400;
+    }
+
+    mark.handle {
+      background: rgb(127 200 255 / 80%);
+      color: #07131f;
+    }
+
+    .empty {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.5;
+      pointer-events: none;
+    }
+
+    .log {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 860px) {
+      body {
+        overflow: auto;
+      }
+
+      html,
+      body {
+        height: auto;
+        min-height: 100%;
+      }
+
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .viewer-wrap {
+        height: 70vh;
+      }
+
+      header {
+        grid-template-columns: 1fr;
+      }
+
+      .status {
+        justify-content: start;
+        flex-wrap: wrap;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>VkSieve</h1>
+      <div class="tagline">Local Vulkan API trace / api_dump stream filter</div>
+    </div>
+    <div class="status" aria-live="polite">
+      <span><i id="stateDot" class="dot"></i><span id="stateText">Idle</span></span>
+      <span id="fileText">No file selected</span>
+    </div>
+  </header>
+
+  <main>
+    <aside>
+      <section class="control-group">
+        <label for="fileInput">Log file</label>
+        <input id="fileInput" type="file" accept=".txt,.log,.trace,.dump,text/plain">
+        <div class="button-row">
+          <button id="startBtn" disabled>Start scan</button>
+          <button id="cancelBtn" class="secondary" disabled>Cancel</button>
+        </div>
+        <div class="progress" aria-label="Read progress">
+          <span id="progressBar"></span>
+        </div>
+        <div id="progressText" class="log">Waiting for a local file.</div>
+      </section>
+
+      <section class="control-group">
+        <label for="keywordInput">Keyword</label>
+        <input id="keywordInput" type="search" placeholder="vkCreateImage, ERROR, queueSubmit">
+      </section>
+
+      <section class="control-group">
+        <label for="handleInput">Focus Handle</label>
+        <input id="handleInput" type="text" placeholder="0x55b2e3f1a0">
+        <label class="check">
+          <input id="focusOnlyInput" type="checkbox">
+          <span>僅顯示與 Focus Handle 相關的 API 呼叫</span>
+        </label>
+      </section>
+
+      <section class="control-group">
+        <div class="label">Noise filters</div>
+        <label class="check">
+          <input id="hideBindInput" type="checkbox">
+          <span>隱藏 Bind 指令<small>vkCmdBindDescriptorSets, vkCmdBindVertexBuffers...</small></span>
+        </label>
+        <label class="check">
+          <input id="hideSetInput" type="checkbox">
+          <span>隱藏 Set 狀態指令<small>vkCmdSetViewport, vkCmdSetScissor...</small></span>
+        </label>
+      </section>
+
+      <section class="control-group">
+        <div class="label">Stats</div>
+        <div class="stats">
+          <div class="stat"><b>Read</b><span id="readStat">0</span></div>
+          <div class="stat"><b>Matched</b><span id="matchStat">0</span></div>
+          <div class="stat"><b>Skipped</b><span id="skipStat">0</span></div>
+          <div class="stat"><b>Shown</b><span id="shownStat">0</span></div>
+        </div>
+        <div id="workerMessage" class="log"></div>
+      </section>
+    </aside>
+
+    <section class="viewer-wrap">
+      <div class="viewer-toolbar">
+        <span><strong id="resultCount">0</strong> matching lines</span>
+        <span id="domCount">0 DOM rows</span>
+      </div>
+      <div id="viewer" class="viewer" tabindex="0" aria-label="Filtered log lines">
+        <div id="spacer" class="spacer"></div>
+        <div id="rows" class="rows"></div>
+        <div id="empty" class="empty">Choose a Vulkan log file and start scanning.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const ROW_HEIGHT = 24;
+      const MAX_RENDERED_ROWS = 90;
+      const RENDER_BUFFER = 20;
+      const BATCH_RENDER_DELAY = 16;
+
+      const els = {
+        file: document.getElementById("fileInput"),
+        start: document.getElementById("startBtn"),
+        cancel: document.getElementById("cancelBtn"),
+        keyword: document.getElementById("keywordInput"),
+        handle: document.getElementById("handleInput"),
+        focusOnly: document.getElementById("focusOnlyInput"),
+        hideBind: document.getElementById("hideBindInput"),
+        hideSet: document.getElementById("hideSetInput"),
+        stateDot: document.getElementById("stateDot"),
+        stateText: document.getElementById("stateText"),
+        fileText: document.getElementById("fileText"),
+        progressBar: document.getElementById("progressBar"),
+        progressText: document.getElementById("progressText"),
+        readStat: document.getElementById("readStat"),
+        matchStat: document.getElementById("matchStat"),
+        skipStat: document.getElementById("skipStat"),
+        shownStat: document.getElementById("shownStat"),
+        resultCount: document.getElementById("resultCount"),
+        domCount: document.getElementById("domCount"),
+        workerMessage: document.getElementById("workerMessage"),
+        viewer: document.getElementById("viewer"),
+        spacer: document.getElementById("spacer"),
+        rows: document.getElementById("rows"),
+        empty: document.getElementById("empty")
+      };
+
+      let worker = null;
+      let selectedFile = null;
+      let results = [];
+      let stats = { read: 0, matched: 0, skipped: 0 };
+      let renderQueued = false;
+      let lastRenderedStart = -1;
+      let lastRenderedEnd = -1;
+      let lastRenderAt = 0;
+      let activeQuery = { keyword: "", focusHandle: "", focusOnly: false };
+
+      function formatCount(value) {
+        return Number(value || 0).toLocaleString("en-US");
+      }
+
+      function formatBytes(bytes) {
+        if (!bytes) return "0 B";
+        const units = ["B", "KB", "MB", "GB", "TB"];
+        let size = bytes;
+        let index = 0;
+        while (size >= 1024 && index < units.length - 1) {
+          size /= 1024;
+          index += 1;
+        }
+        return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+      }
+
+      function setState(text, mode = "idle") {
+        els.stateText.textContent = text;
+        els.stateDot.className = `dot ${mode === "running" ? "running" : mode === "error" ? "error" : ""}`;
+      }
+
+      function getFilters() {
+        return {
+          keyword: els.keyword.value.trim(),
+          focusHandle: els.handle.value.trim(),
+          focusOnly: els.focusOnly.checked,
+          hideBind: els.hideBind.checked,
+          hideSet: els.hideSet.checked
+        };
+      }
+
+      function resetResults() {
+        results = [];
+        stats = { read: 0, matched: 0, skipped: 0 };
+        els.viewer.scrollTop = 0;
+        els.spacer.style.height = "0px";
+        els.rows.textContent = "";
+        els.empty.hidden = false;
+        lastRenderedStart = -1;
+        lastRenderedEnd = -1;
+        updateStats();
+      }
+
+      function updateStats() {
+        els.readStat.textContent = formatCount(stats.read);
+        els.matchStat.textContent = formatCount(stats.matched);
+        els.skipStat.textContent = formatCount(stats.skipped);
+        els.shownStat.textContent = formatCount(results.length);
+        els.resultCount.textContent = formatCount(results.length);
+      }
+
+      function escapeHtml(text) {
+        return text.replace(/[&<>"']/g, char => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          "\"": "&quot;",
+          "'": "&#39;"
+        })[char]);
+      }
+
+      function escapeRegExp(text) {
+        return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      }
+
+      function highlightLine(raw) {
+        let html = escapeHtml(raw);
+        const terms = [];
+        if (activeQuery.keyword) {
+          terms.push({ value: activeQuery.keyword, className: "" });
+        }
+        if (activeQuery.focusHandle) {
+          terms.push({ value: activeQuery.focusHandle, className: "handle" });
+        }
+        terms
+          .filter(term => term.value.length > 0)
+          .sort((a, b) => b.value.length - a.value.length)
+          .forEach(term => {
+            const re = new RegExp(escapeRegExp(escapeHtml(term.value)), "gi");
+            const classAttr = term.className ? ` class="${term.className}"` : "";
+            html = html.replace(re, match => `<mark${classAttr}>${match}</mark>`);
+          });
+        return html;
+      }
+
+      function queueRender() {
+        if (renderQueued) return;
+        renderQueued = true;
+        const elapsed = performance.now() - lastRenderAt;
+        const delay = Math.max(0, BATCH_RENDER_DELAY - elapsed);
+        window.setTimeout(() => {
+          requestAnimationFrame(() => {
+            renderQueued = false;
+            renderVisibleRows();
+          });
+        }, delay);
+      }
+
+      function renderVisibleRows(force = false) {
+        const total = results.length;
+        els.spacer.style.height = `${total * ROW_HEIGHT}px`;
+        els.empty.hidden = total !== 0;
+
+        const viewportHeight = els.viewer.clientHeight || 1;
+        const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT);
+        const rowCount = Math.min(MAX_RENDERED_ROWS, visibleCount + RENDER_BUFFER * 2);
+        const firstVisible = Math.floor(els.viewer.scrollTop / ROW_HEIGHT);
+        const start = Math.max(0, Math.min(total, firstVisible - RENDER_BUFFER));
+        const end = Math.min(total, start + rowCount);
+
+        if (!force && start === lastRenderedStart && end === lastRenderedEnd) return;
+        lastRenderedStart = start;
+        lastRenderedEnd = end;
+        lastRenderAt = performance.now();
+
+        const fragment = document.createDocumentFragment();
+        for (let i = start; i < end; i += 1) {
+          const item = results[i];
+          const row = document.createElement("div");
+          row.className = "row";
+          row.style.height = `${ROW_HEIGHT}px`;
+
+          const number = document.createElement("div");
+          number.className = "line-no";
+          number.textContent = item.lineNumber;
+
+          const text = document.createElement("div");
+          text.className = "line-text";
+          text.innerHTML = highlightLine(item.text);
+
+          row.append(number, text);
+          fragment.append(row);
+        }
+
+        els.rows.style.transform = `translateY(${start * ROW_HEIGHT}px)`;
+        els.rows.replaceChildren(fragment);
+        els.domCount.textContent = `${(end - start) * 3} DOM nodes`;
+      }
+
+      function terminateWorker() {
+        if (!worker) return;
+        worker.postMessage({ type: "cancel" });
+        worker.terminate();
+        worker = null;
+      }
+
+      function startScan() {
+        if (!selectedFile) return;
+        terminateWorker();
+        resetResults();
+
+        const filters = getFilters();
+        activeQuery = {
+          keyword: filters.keyword,
+          focusHandle: filters.focusHandle,
+          focusOnly: filters.focusOnly
+        };
+
+        worker = new Worker("worker.js");
+        setState("Scanning", "running");
+        els.start.disabled = true;
+        els.cancel.disabled = false;
+        els.workerMessage.textContent = "";
+        els.progressText.textContent = `Reading ${formatBytes(selectedFile.size)} locally in a Web Worker.`;
+
+        worker.onmessage = event => {
+          const message = event.data;
+          if (message.type === "batch") {
+            results.push(...message.items);
+            stats.read = message.stats.read;
+            stats.matched = message.stats.matched;
+            stats.skipped = message.stats.skipped;
+            updateStats();
+            queueRender();
+            return;
+          }
+
+          if (message.type === "progress") {
+            stats.read = message.stats.read;
+            stats.matched = message.stats.matched;
+            stats.skipped = message.stats.skipped;
+            const percent = selectedFile.size > 0
+              ? Math.min(100, Math.round((message.approxBytesRead / selectedFile.size) * 100))
+              : 100;
+            els.progressBar.style.width = `${percent}%`;
+            els.progressText.textContent = `${percent}% scanned, ${formatCount(stats.read)} lines read.`;
+            updateStats();
+            return;
+          }
+
+          if (message.type === "done") {
+            stats = message.stats;
+            els.progressBar.style.width = "100%";
+            els.progressText.textContent = `Completed. ${formatCount(stats.read)} lines read, ${formatCount(stats.matched)} matched.`;
+            els.workerMessage.textContent = message.wasCancelled ? "Scan cancelled." : "";
+            setState(message.wasCancelled ? "Cancelled" : "Done");
+            els.start.disabled = false;
+            els.cancel.disabled = true;
+            worker = null;
+            updateStats();
+            renderVisibleRows(true);
+            return;
+          }
+
+          if (message.type === "error") {
+            els.workerMessage.textContent = message.error;
+            setState("Error", "error");
+            els.start.disabled = false;
+            els.cancel.disabled = true;
+            worker = null;
+          }
+        };
+
+        worker.onerror = error => {
+          els.workerMessage.textContent = error.message || "Worker failed.";
+          setState("Error", "error");
+          els.start.disabled = false;
+          els.cancel.disabled = true;
+          worker = null;
+        };
+
+        worker.postMessage({ type: "start", file: selectedFile, filters });
+      }
+
+      els.file.addEventListener("change", () => {
+        selectedFile = els.file.files[0] || null;
+        els.start.disabled = !selectedFile;
+        els.fileText.textContent = selectedFile
+          ? `${selectedFile.name} (${formatBytes(selectedFile.size)})`
+          : "No file selected";
+        els.progressText.textContent = selectedFile ? "Ready to scan." : "Waiting for a local file.";
+      });
+
+      els.start.addEventListener("click", startScan);
+      els.cancel.addEventListener("click", () => {
+        if (!worker) return;
+        worker.postMessage({ type: "cancel" });
+        els.cancel.disabled = true;
+        els.workerMessage.textContent = "Cancelling after current stream chunk.";
+      });
+
+      [els.keyword, els.handle, els.focusOnly, els.hideBind, els.hideSet].forEach(input => {
+        input.addEventListener("change", () => {
+          if (selectedFile && !worker) {
+            els.workerMessage.textContent = "Filters changed. Start scan again to apply them.";
+          }
+        });
+      });
+
+      els.viewer.addEventListener("scroll", queueRender, { passive: true });
+      window.addEventListener("resize", () => renderVisibleRows(true));
+      window.addEventListener("beforeunload", terminateWorker);
+
+      setState("Idle");
+      renderVisibleRows(true);
+    })();
+  </script>
+</body>
+</html>
