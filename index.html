@@ -297,7 +297,7 @@
       min-width: 0;
       min-height: 0;
       display: grid;
-      grid-template-rows: auto auto 1fr;
+      grid-template-rows: auto auto auto auto 1fr;
       background: #10130f;
     }
 
@@ -327,6 +327,26 @@
       font-size: 12px;
     }
 
+    .zoom-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding-right: 4px;
+      border-right: 1px solid var(--line);
+    }
+
+    .zoom-controls button {
+      min-width: 34px;
+      padding-inline: 8px;
+    }
+
+    .zoom-level {
+      min-width: 42px;
+      color: var(--text);
+      font-family: var(--mono);
+      text-align: center;
+    }
+
     .viewer-toolbar strong {
       color: var(--text);
       font-weight: 650;
@@ -343,6 +363,27 @@
 
     .selection-notice[hidden] {
       display: none;
+    }
+
+    .scroll-rail {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #111510;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .scroll-rail[hidden] {
+      display: none;
+    }
+
+    .scroll-rail input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
     }
 
     .action-toast {
@@ -661,6 +702,11 @@
       <div class="viewer-toolbar">
         <span><strong id="resultCount">0</strong> matching lines</span>
         <div class="toolbar-actions">
+          <div class="zoom-controls" aria-label="Log text size">
+            <button id="zoomOutBtn" class="secondary" type="button">A-</button>
+            <span id="zoomLevel" class="zoom-level">100%</span>
+            <button id="zoomInBtn" class="secondary" type="button">A+</button>
+          </div>
           <button id="copyFilteredBtn" class="secondary" disabled>Copy filtered</button>
           <button id="downloadFilteredBtn" class="secondary" disabled>Download .log</button>
           <span id="domCount">0 DOM rows</span>
@@ -673,6 +719,10 @@
       <div id="frameSummary" class="frame-summary" hidden>
         <div id="summaryTitle" class="summary-title">Frame</div>
         <div id="summaryList" class="summary-list"></div>
+      </div>
+      <div id="horizontalScrollRail" class="scroll-rail" hidden>
+        <span>Horizontal</span>
+        <input id="horizontalScrollInput" type="range" min="0" max="0" value="0" step="1" aria-label="Horizontal log scroll">
       </div>
       <div id="viewer" class="viewer" tabindex="0" aria-label="Filtered log lines">
         <div id="spacer" class="spacer"></div>
@@ -690,6 +740,9 @@
       const MAX_RENDERED_ROWS = 90;
       const RENDER_BUFFER = 20;
       const BATCH_RENDER_DELAY = 16;
+      const DEFAULT_LOG_FONT_SIZE = 12;
+      const MIN_LOG_FONT_SIZE = 10;
+      const MAX_LOG_FONT_SIZE = 16;
       const BIND_COMMAND_RE = /\bvkCmdBind[A-Za-z0-9_]*\b/;
       const SET_COMMAND_RE = /\bvkCmdSet[A-Za-z0-9_]*\b/;
       const ERROR_HIGHLIGHT_RE = /\b(?:ERROR|VK_ERROR_[A-Z0-9_]+)\b/g;
@@ -725,6 +778,11 @@
         shownStat: document.getElementById("shownStat"),
         resultCount: document.getElementById("resultCount"),
         domCount: document.getElementById("domCount"),
+        zoomOut: document.getElementById("zoomOutBtn"),
+        zoomIn: document.getElementById("zoomInBtn"),
+        zoomLevel: document.getElementById("zoomLevel"),
+        horizontalScrollRail: document.getElementById("horizontalScrollRail"),
+        horizontalScroll: document.getElementById("horizontalScrollInput"),
         copyFiltered: document.getElementById("copyFilteredBtn"),
         downloadFiltered: document.getElementById("downloadFilteredBtn"),
         actionToast: document.getElementById("actionToast"),
@@ -752,6 +810,7 @@
       let lastRenderAt = 0;
       let isScanning = false;
       let toastTimer = 0;
+      let logFontSize = DEFAULT_LOG_FONT_SIZE;
       let activeQuery = { keyword: "", focusHandle: "", focusOnly: false };
 
       function formatCount(value) {
@@ -775,6 +834,25 @@
         els.stateDot.className = `dot ${mode === "running" ? "running" : mode === "error" ? "error" : ""}`;
       }
 
+      function syncHorizontalRail() {
+        const renderedWidth = Math.max(1, els.rows.scrollWidth);
+        els.spacer.style.width = visibleResults.length > 0 ? `${renderedWidth}px` : "1px";
+        const contentWidth = Math.max(els.viewer.scrollWidth, renderedWidth);
+        const maxScroll = Math.max(0, contentWidth - els.viewer.clientWidth);
+        els.horizontalScrollRail.hidden = maxScroll === 0 || visibleResults.length === 0;
+        els.horizontalScroll.max = String(Math.ceil(maxScroll));
+        els.horizontalScroll.value = String(Math.min(Math.ceil(els.viewer.scrollLeft), Math.ceil(maxScroll)));
+      }
+
+      function applyLogZoom() {
+        els.viewer.style.fontSize = `${logFontSize}px`;
+        els.zoomLevel.textContent = `${Math.round((logFontSize / DEFAULT_LOG_FONT_SIZE) * 100)}%`;
+        els.zoomOut.disabled = logFontSize <= MIN_LOG_FONT_SIZE;
+        els.zoomIn.disabled = logFontSize >= MAX_LOG_FONT_SIZE;
+        renderVisibleRows(true);
+        requestAnimationFrame(syncHorizontalRail);
+      }
+
       function getFilters() {
         return {
           keyword: els.keyword.value.trim(),
@@ -792,7 +870,9 @@
         frames = [];
         stats = { read: 0, matched: 0, skipped: 0 };
         els.viewer.scrollTop = 0;
+        els.viewer.scrollLeft = 0;
         els.spacer.style.height = "0px";
+        els.spacer.style.width = "1px";
         els.rows.textContent = "";
         resetFrameSelect();
         resetTidSelect();
@@ -801,6 +881,7 @@
         lastRenderedStart = -1;
         lastRenderedEnd = -1;
         updateStats();
+        syncHorizontalRail();
       }
 
       function updateEmptyState() {
@@ -1261,6 +1342,7 @@
         els.rows.style.transform = `translateY(${start * ROW_HEIGHT}px)`;
         els.rows.replaceChildren(fragment);
         els.domCount.textContent = `${(end - start) * 3} DOM nodes`;
+        syncHorizontalRail();
       }
 
       function terminateWorker() {
@@ -1433,6 +1515,17 @@
       });
       els.copyFiltered.addEventListener("click", copyFilteredLogs);
       els.downloadFiltered.addEventListener("click", downloadFilteredLogs);
+      els.zoomOut.addEventListener("click", () => {
+        logFontSize = Math.max(MIN_LOG_FONT_SIZE, logFontSize - 1);
+        applyLogZoom();
+      });
+      els.zoomIn.addEventListener("click", () => {
+        logFontSize = Math.min(MAX_LOG_FONT_SIZE, logFontSize + 1);
+        applyLogZoom();
+      });
+      els.horizontalScroll.addEventListener("input", () => {
+        els.viewer.scrollLeft = Number(els.horizontalScroll.value);
+      });
       els.rows.addEventListener("click", event => {
         if (!(event.target instanceof Element)) return;
         const addressMark = event.target.closest("mark.address, mark.handle[data-address]");
@@ -1464,11 +1557,15 @@
         });
       });
 
-      els.viewer.addEventListener("scroll", queueRender, { passive: true });
+      els.viewer.addEventListener("scroll", () => {
+        queueRender();
+        syncHorizontalRail();
+      }, { passive: true });
       window.addEventListener("resize", () => renderVisibleRows(true));
       window.addEventListener("beforeunload", terminateWorker);
 
       setState("Idle");
+      applyLogZoom();
       renderVisibleRows(true);
     })();
   </script>
