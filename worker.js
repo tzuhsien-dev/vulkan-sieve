@@ -9,8 +9,9 @@ const SET_COMMAND_RE = /\bvkCmdSet[A-Za-z0-9_]*\b/;
 const FRAME_RE = /\[F#(\d+)\]/;
 const API_CALL_RE = /\b(vk[A-Za-z0-9_]+)(?=\s*(?:\(|:))/;
 const ANDROID_LOG_PREFIX_RE = /^\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+(\d+)\s+(\d+)\s+\S\s+/;
-const BEGIN_RENDER_PASS = "vkCmdBeginRenderPass";
-const END_RENDER_PASS = "vkCmdEndRenderPass";
+const BEGIN_RENDER_PASS_RE = /\bvkCmdBeginRenderPass\w*\b/;
+const END_RENDER_PASS_RE = /\bvkCmdEndRenderPass\w*\b/;
+const COMMAND_BUFFER_FIELD_RE = /\bcommandBuffer\s*=/;
 
 self.onmessage = event => {
   const message = event.data;
@@ -47,7 +48,7 @@ async function scanFile(file, filters) {
   let carry = "";
   let approxBytesRead = 0;
   let lastProgressAt = performance.now();
-  let currentRenderPassIndex = 0;
+  const renderPassScopes = new Map();
 
   const reader = file
     .stream()
@@ -67,7 +68,7 @@ async function scanFile(file, filters) {
       for (const line of lines) {
         if (cancelled) break;
         lineNumber += 1;
-        currentRenderPassIndex = processLine(
+        processLine(
           line,
           lineNumber,
           normalized,
@@ -75,7 +76,7 @@ async function scanFile(file, filters) {
           batch,
           frames,
           tids,
-          currentRenderPassIndex
+          renderPassScopes
         );
         if (batch.length >= BATCH_SIZE) {
           flushBatch(batch, stats);
@@ -91,7 +92,7 @@ async function scanFile(file, filters) {
 
     if (!cancelled && carry.length > 0) {
       lineNumber += 1;
-      currentRenderPassIndex = processLine(
+      processLine(
         carry,
         lineNumber,
         normalized,
@@ -99,7 +100,7 @@ async function scanFile(file, filters) {
         batch,
         frames,
         tids,
-        currentRenderPassIndex
+        renderPassScopes
       );
     }
 
@@ -135,16 +136,20 @@ function normalizeFilters(filters) {
   };
 }
 
-function processLine(line, lineNumber, filters, stats, batch, frames, tids, currentRenderPassIndex) {
+function processLine(line, lineNumber, filters, stats, batch, frames, tids, renderPassScopes) {
   stats.read += 1;
-  let nextRenderPassIndex = currentRenderPassIndex;
-  if (line.includes(BEGIN_RENDER_PASS)) {
-    nextRenderPassIndex += 1;
-  }
-  const renderPassId = nextRenderPassIndex > 0 ? nextRenderPassIndex : null;
-  const endsRenderPass = line.includes(END_RENDER_PASS);
-  const frameNumber = getFrameNumber(line);
   const thread = getThreadInfo(line);
+  const scopeKey = thread.tid !== null ? `tid:${thread.tid}` : "global";
+  const beginsRenderPass = isRenderPassCallLine(line, BEGIN_RENDER_PASS_RE);
+  const endsRenderPass = isRenderPassCallLine(line, END_RENDER_PASS_RE);
+  let currentRenderPassIndex = renderPassScopes.get(scopeKey) || 0;
+  if (beginsRenderPass) {
+    currentRenderPassIndex += 1;
+  }
+  const renderPassId = currentRenderPassIndex > 0 ? currentRenderPassIndex : null;
+  updateRenderPassScope(renderPassScopes, scopeKey, endsRenderPass ? 0 : currentRenderPassIndex);
+
+  const frameNumber = getFrameNumber(line);
   if (frameNumber !== null) {
     frames.add(frameNumber);
   }
@@ -154,12 +159,12 @@ function processLine(line, lineNumber, filters, stats, batch, frames, tids, curr
 
   if (filters.hideBind && BIND_COMMAND_RE.test(line)) {
     stats.skipped += 1;
-    return endsRenderPass ? 0 : nextRenderPassIndex;
+    return;
   }
 
   if (filters.hideSet && SET_COMMAND_RE.test(line)) {
     stats.skipped += 1;
-    return endsRenderPass ? 0 : nextRenderPassIndex;
+    return;
   }
 
   const lower = (filters.keywordLower || filters.focusHandleLower)
@@ -168,12 +173,12 @@ function processLine(line, lineNumber, filters, stats, batch, frames, tids, curr
 
   if (filters.keywordLower && !lower.includes(filters.keywordLower)) {
     stats.skipped += 1;
-    return endsRenderPass ? 0 : nextRenderPassIndex;
+    return;
   }
 
   if (filters.focusOnly && filters.focusHandleLower && !lower.includes(filters.focusHandleLower)) {
     stats.skipped += 1;
-    return endsRenderPass ? 0 : nextRenderPassIndex;
+    return;
   }
 
   stats.matched += 1;
@@ -186,7 +191,19 @@ function processLine(line, lineNumber, filters, stats, batch, frames, tids, curr
     renderPassId,
     apiName: getApiName(line)
   });
-  return endsRenderPass ? 0 : nextRenderPassIndex;
+}
+
+function isRenderPassCallLine(line, apiRegex) {
+  apiRegex.lastIndex = 0;
+  return apiRegex.test(line) && COMMAND_BUFFER_FIELD_RE.test(line);
+}
+
+function updateRenderPassScope(renderPassScopes, scopeKey, renderPassId) {
+  if (renderPassId > 0) {
+    renderPassScopes.set(scopeKey, renderPassId);
+  } else {
+    renderPassScopes.delete(scopeKey);
+  }
 }
 
 function getFrameNumber(line) {
