@@ -505,7 +505,7 @@
 
     .row {
       display: grid;
-      grid-template-columns: 92px max-content;
+      grid-template-columns: 92px 64px max-content;
       height: 24px;
       min-width: 100%;
       width: max-content;
@@ -532,6 +532,28 @@
       color: #85907f;
       text-align: right;
       user-select: none;
+    }
+
+    .render-pass-cell {
+      overflow: hidden;
+      padding: 0 8px;
+      border-right: 1px solid rgb(58 67 56 / 40%);
+      color: #6f7a68;
+      user-select: none;
+    }
+
+    .render-pass-badge {
+      display: inline-flex;
+      align-items: center;
+      height: 17px;
+      padding: 0 5px;
+      border: 1px solid rgb(143 209 106 / 38%);
+      border-radius: 4px;
+      background: rgb(143 209 106 / 14%);
+      color: #b6f08d;
+      font-size: 10px;
+      line-height: 1;
+      vertical-align: middle;
     }
 
     .line-text {
@@ -1374,17 +1396,26 @@
           number.className = "line-no";
           number.textContent = item.lineNumber;
 
+          const renderPass = document.createElement("div");
+          renderPass.className = "render-pass-cell";
+          if (item.renderPassId) {
+            const badge = document.createElement("span");
+            badge.className = "render-pass-badge";
+            badge.textContent = `[RP#${item.renderPassId}]`;
+            renderPass.append(badge);
+          }
+
           const text = document.createElement("div");
           text.className = "line-text";
           text.innerHTML = highlightLine(item.text);
 
-          row.append(number, text);
+          row.append(number, renderPass, text);
           fragment.append(row);
         }
 
         els.rows.style.transform = `translateY(${start * ROW_HEIGHT}px)`;
         els.rows.replaceChildren(fragment);
-        els.domCount.textContent = `${(end - start) * 3} DOM nodes`;
+        els.domCount.textContent = `${(end - start) * 4} DOM nodes`;
         syncHorizontalRail();
       }
 
