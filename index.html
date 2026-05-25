@@ -432,14 +432,17 @@
       position: absolute;
       top: 0;
       left: 0;
-      right: 0;
+      min-width: 100%;
+      width: max-content;
       will-change: transform;
     }
 
     .row {
       display: grid;
-      grid-template-columns: 92px minmax(0, 1fr);
+      grid-template-columns: 92px max-content;
       height: 24px;
+      min-width: 100%;
+      width: max-content;
       border-bottom: 1px solid rgb(58 67 56 / 45%);
       white-space: pre;
     }
@@ -466,10 +469,9 @@
     }
 
     .line-text {
-      overflow: hidden;
+      overflow: visible;
       padding: 0 12px;
       color: #dce7d6;
-      text-overflow: clip;
     }
 
     mark {
