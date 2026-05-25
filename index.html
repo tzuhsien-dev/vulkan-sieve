@@ -353,6 +353,29 @@
       font-weight: 650;
     }
 
+    .matching-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .local-filter {
+      width: min(320px, 36vw);
+      min-width: 180px;
+      height: 30px;
+      padding: 5px 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #10130f;
+      color: var(--text);
+      font: 12px/1.2 var(--mono);
+    }
+
+    .local-filter::placeholder {
+      color: #7f8a78;
+    }
+
     .selection-notice {
       padding: 10px 14px;
       border-bottom: 1px solid var(--line);
@@ -702,7 +725,10 @@
 
     <section class="viewer-wrap">
       <div class="viewer-toolbar">
-        <span><strong id="resultCount">0</strong> matching lines</span>
+        <div class="matching-status">
+          <span><strong id="resultCount">0</strong> matching lines</span>
+          <input id="local-filter" class="local-filter" type="search" placeholder="⚡ 本地二次即時過濾...">
+        </div>
         <div class="toolbar-actions">
           <div class="zoom-controls" aria-label="Log text size">
             <button id="zoomOutBtn" class="secondary" type="button">A-</button>
@@ -779,6 +805,7 @@
         skipStat: document.getElementById("skipStat"),
         shownStat: document.getElementById("shownStat"),
         resultCount: document.getElementById("resultCount"),
+        localFilter: document.getElementById("local-filter"),
         domCount: document.getElementById("domCount"),
         zoomOut: document.getElementById("zoomOutBtn"),
         zoomIn: document.getElementById("zoomInBtn"),
@@ -802,6 +829,7 @@
       let worker = null;
       let selectedFile = null;
       let allResults = [];
+      let baseVisibleResults = [];
       let visibleResults = [];
       let frameBuckets = new Map();
       let frames = [];
@@ -865,14 +893,37 @@
         };
       }
 
+      function resetViewerPosition() {
+        els.viewer.scrollTop = 0;
+        els.viewer.scrollLeft = 0;
+        lastRenderedStart = -1;
+        lastRenderedEnd = -1;
+      }
+
+      function applyLocalFilter({ resetScroll = true, render = true } = {}) {
+        const query = els.localFilter.value.trim().toLowerCase();
+        visibleResults = query
+          ? baseVisibleResults.filter(item => item.text.toLowerCase().includes(query))
+          : baseVisibleResults;
+        if (resetScroll) {
+          resetViewerPosition();
+        }
+        updateStats();
+        updateFrameSummary();
+        if (render) {
+          renderVisibleRows(true);
+        }
+      }
+
       function resetResults() {
         allResults = [];
+        baseVisibleResults = [];
         visibleResults = [];
         frameBuckets = new Map();
         frames = [];
         stats = { read: 0, matched: 0, skipped: 0 };
-        els.viewer.scrollTop = 0;
-        els.viewer.scrollLeft = 0;
+        els.localFilter.value = "";
+        resetViewerPosition();
         els.spacer.style.height = "0px";
         els.spacer.style.width = "1px";
         els.rows.textContent = "";
@@ -880,8 +931,6 @@
         resetTidSelect();
         updateFrameSummary();
         updateEmptyState();
-        lastRenderedStart = -1;
-        lastRenderedEnd = -1;
         updateStats();
         syncHorizontalRail();
       }
@@ -889,6 +938,8 @@
       function updateEmptyState() {
         if (allResults.length === 0) {
           els.empty.textContent = "Choose a Vulkan log file and start scanning.";
+        } else if (baseVisibleResults.length > 0 && els.localFilter.value.trim() && visibleResults.length === 0) {
+          els.empty.textContent = "No lines match the local filter.";
         } else if (isTrackerMode()) {
           els.empty.textContent = "No scanned lines mention the locked Handle.";
         } else if (getSelectedFrames().length === 0) {
@@ -1121,22 +1172,17 @@
 
       function applyFrameFilter() {
         if (isTrackerMode()) {
-          visibleResults = allResults.filter(matchesFocusHandle);
+          baseVisibleResults = allResults.filter(matchesFocusHandle);
           els.frameText.textContent = "Handle tracker active; Frame filter paused.";
           els.tidText.textContent = "Handle tracker active; TID filter paused.";
-          els.viewer.scrollTop = 0;
-          lastRenderedStart = -1;
-          lastRenderedEnd = -1;
-          updateStats();
-          updateFrameSummary();
-          renderVisibleRows(true);
+          applyLocalFilter();
           return;
         }
 
         const selectedFrames = getSelectedFrames();
         populateTidSelect(getTidsForSelectedFrames(selectedFrames));
         const selectedTids = getSelectedTids();
-        visibleResults = selectedFrames
+        baseVisibleResults = selectedFrames
           .flatMap(frameNumber => frameBuckets.get(frameNumber) || [])
           .filter(item => selectedTids.length === 0 || selectedTids.includes(String(item.tid)))
           .filter(passesLiveNoiseFilters);
@@ -1145,9 +1191,9 @@
             ? `${formatCount(frames.length)} frames indexed. Select one or more Frames.`
             : "No [F#...] frame markers found.";
         } else if (selectedFrames.length === frames.length) {
-          els.frameText.textContent = `All ${formatCount(frames.length)} Frames selected: ${formatCount(visibleResults.length)} matching lines.`;
+          els.frameText.textContent = `All ${formatCount(frames.length)} Frames selected: ${formatCount(baseVisibleResults.length)} matching lines.`;
         } else {
-          els.frameText.textContent = `${formatCount(selectedFrames.length)} Frames selected: ${formatCount(visibleResults.length)} matching lines.`;
+          els.frameText.textContent = `${formatCount(selectedFrames.length)} Frames selected: ${formatCount(baseVisibleResults.length)} matching lines.`;
         }
         if (selectedTids.length === 0) {
           els.tidText.textContent = selectedFrames.length > 0
@@ -1158,12 +1204,7 @@
         } else {
           els.tidText.textContent = `${formatCount(selectedTids.length)} TIDs selected.`;
         }
-        els.viewer.scrollTop = 0;
-        lastRenderedStart = -1;
-        lastRenderedEnd = -1;
-        updateStats();
-        updateFrameSummary();
-        renderVisibleRows(true);
+        applyLocalFilter();
       }
 
       function updateFrameSummary() {
@@ -1388,10 +1429,10 @@
               frameBuckets.get(frameKey).push(item);
             });
             if (isTrackerMode()) {
-              visibleResults = allResults.filter(matchesFocusHandle);
+              baseVisibleResults = allResults.filter(matchesFocusHandle);
             } else {
               const selectedTids = getSelectedTids();
-              visibleResults = getSelectedFrames()
+              baseVisibleResults = getSelectedFrames()
                 .flatMap(frameNumber => frameBuckets.get(frameNumber) || [])
                 .filter(item => selectedTids.length === 0 || selectedTids.includes(String(item.tid)))
                 .filter(passesLiveNoiseFilters);
@@ -1399,8 +1440,7 @@
             stats.read = message.stats.read;
             stats.matched = message.stats.matched;
             stats.skipped = message.stats.skipped;
-            updateStats();
-            updateFrameSummary();
+            applyLocalFilter({ resetScroll: false, render: false });
             queueRender();
             return;
           }
@@ -1517,6 +1557,9 @@
       });
       els.copyFiltered.addEventListener("click", copyFilteredLogs);
       els.downloadFiltered.addEventListener("click", downloadFilteredLogs);
+      els.localFilter.addEventListener("input", () => {
+        applyLocalFilter();
+      });
       els.zoomOut.addEventListener("click", () => {
         logFontSize = Math.max(MIN_LOG_FONT_SIZE, logFontSize - 1);
         applyLogZoom();
