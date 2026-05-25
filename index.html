@@ -480,8 +480,8 @@
     }
 
     mark.handle {
-      background: rgb(127 200 255 / 80%);
-      color: #07131f;
+      background: rgb(241 214 106 / 90%);
+      color: #171400;
     }
 
     mark.error {
@@ -494,9 +494,22 @@
       color: #81f2ff;
     }
 
-    mark.address {
+    mark.address,
+    mark.handle[data-address] {
       background: rgb(236 145 63 / 24%);
       color: #ffb66d;
+      cursor: pointer;
+    }
+
+    mark.handle[data-address] {
+      background: rgb(241 214 106 / 90%);
+      color: #171400;
+    }
+
+    mark.address:hover,
+    mark.handle[data-address]:hover {
+      outline: 1px solid rgb(255 182 109 / 70%);
+      text-decoration: underline;
     }
 
     .empty {
@@ -791,13 +804,15 @@
       function updateEmptyState() {
         if (allResults.length === 0) {
           els.empty.textContent = "Choose a Vulkan log file and start scanning.";
+        } else if (isTrackerMode()) {
+          els.empty.textContent = "No scanned lines mention the locked Handle.";
         } else if (getSelectedFrames().length === 0) {
           els.empty.textContent = "Scan complete. Select one or more Frames from the left panel to display matching log lines.";
         } else {
           els.empty.textContent = "No matching lines for the selected Frames.";
         }
         els.empty.hidden = isScanning || visibleResults.length > 0;
-        els.selectionNotice.hidden = isScanning || allResults.length === 0 || getSelectedFrames().length > 0;
+        els.selectionNotice.hidden = isScanning || allResults.length === 0 || isTrackerMode() || getSelectedFrames().length > 0;
       }
 
       function updateStats() {
@@ -819,6 +834,10 @@
         const baseName = selectedFile
           ? selectedFile.name.replace(/\.[^.]*$/, "")
           : "vksieve";
+        if (isTrackerMode()) {
+          const handlePart = activeQuery.focusHandle.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
+          return `${baseName}-handle-${handlePart || "tracked"}.log`;
+        }
         const selectedFrames = getSelectedFrames();
         const selectedTids = getSelectedTids();
         const framePart = selectedFrames.length === 0
@@ -888,6 +907,19 @@
         els.workerMessage.textContent = message;
         showActionToast(message);
         flashButton(els.downloadFiltered, "Downloaded");
+      }
+
+      function trackHandle(handle) {
+        const normalizedHandle = handle.trim();
+        if (!normalizedHandle) return;
+        els.handle.value = normalizedHandle;
+        els.focusOnly.checked = true;
+        activeQuery.focusHandle = normalizedHandle;
+        activeQuery.focusOnly = true;
+        applyFrameFilter();
+        const message = `Tracking handle ${normalizedHandle} across all scanned lines.`;
+        els.workerMessage.textContent = message;
+        showActionToast(message);
       }
 
       function resetFrameSelect() {
@@ -982,6 +1014,14 @@
         return true;
       }
 
+      function isTrackerMode() {
+        return Boolean(activeQuery.focusOnly && activeQuery.focusHandle);
+      }
+
+      function matchesFocusHandle(item) {
+        return item.text.toLowerCase().includes(activeQuery.focusHandle.toLowerCase());
+      }
+
       function getTidsForSelectedFrames(selectedFrames) {
         const tidSet = new Set();
         selectedFrames
@@ -995,6 +1035,19 @@
       }
 
       function applyFrameFilter() {
+        if (isTrackerMode()) {
+          visibleResults = allResults.filter(matchesFocusHandle);
+          els.frameText.textContent = "Handle tracker active; Frame filter paused.";
+          els.tidText.textContent = "Handle tracker active; TID filter paused.";
+          els.viewer.scrollTop = 0;
+          lastRenderedStart = -1;
+          lastRenderedEnd = -1;
+          updateStats();
+          updateFrameSummary();
+          renderVisibleRows(true);
+          return;
+        }
+
         const selectedFrames = getSelectedFrames();
         populateTidSelect(getTidsForSelectedFrames(selectedFrames));
         const selectedTids = getSelectedTids();
@@ -1143,9 +1196,11 @@
         let cursor = 0;
         let html = "";
         matches.forEach(match => {
+          const value = raw.slice(match.start, match.end);
           html += escapeHtml(raw.slice(cursor, match.start));
           const classAttr = match.className ? ` class="${match.className}"` : "";
-          html += `<mark${classAttr}>${escapeHtml(raw.slice(match.start, match.end))}</mark>`;
+          const addressAttr = /^0x[0-9a-f]+$/i.test(value) ? ` data-address="${escapeHtml(value)}"` : "";
+          html += `<mark${classAttr}${addressAttr}>${escapeHtml(value)}</mark>`;
           cursor = match.end;
         });
         html += escapeHtml(raw.slice(cursor));
@@ -1246,11 +1301,15 @@
               }
               frameBuckets.get(frameKey).push(item);
             });
-            const selectedTids = getSelectedTids();
-            visibleResults = getSelectedFrames()
-              .flatMap(frameNumber => frameBuckets.get(frameNumber) || [])
-              .filter(item => selectedTids.length === 0 || selectedTids.includes(String(item.tid)))
-              .filter(passesLiveNoiseFilters);
+            if (isTrackerMode()) {
+              visibleResults = allResults.filter(matchesFocusHandle);
+            } else {
+              const selectedTids = getSelectedTids();
+              visibleResults = getSelectedFrames()
+                .flatMap(frameNumber => frameBuckets.get(frameNumber) || [])
+                .filter(item => selectedTids.length === 0 || selectedTids.includes(String(item.tid)))
+                .filter(passesLiveNoiseFilters);
+            }
             stats.read = message.stats.read;
             stats.matched = message.stats.matched;
             stats.skipped = message.stats.skipped;
@@ -1372,13 +1431,30 @@
       });
       els.copyFiltered.addEventListener("click", copyFilteredLogs);
       els.downloadFiltered.addEventListener("click", downloadFilteredLogs);
+      els.rows.addEventListener("click", event => {
+        if (!(event.target instanceof Element)) return;
+        const addressMark = event.target.closest("mark.address, mark.handle[data-address]");
+        if (!addressMark || !els.rows.contains(addressMark)) return;
+        trackHandle(addressMark.dataset.address || addressMark.textContent);
+      });
 
       [els.keyword, els.handle, els.focusOnly, els.hideBind, els.hideSet].forEach(input => {
         input.addEventListener("change", () => {
           if (selectedFile && !worker) {
-            if (input === els.hideBind || input === els.hideSet) {
+            if (input === els.handle || input === els.focusOnly) {
+              activeQuery.focusHandle = els.handle.value.trim();
+              activeQuery.focusOnly = els.focusOnly.checked;
               applyFrameFilter();
-              els.workerMessage.textContent = "Noise filters applied to current results.";
+              if (isTrackerMode()) {
+                els.workerMessage.textContent = "Handle tracker applied to current scanned results.";
+              } else {
+                els.workerMessage.textContent = "Handle tracker cleared. Frame and TID filters restored.";
+              }
+            } else if (input === els.hideBind || input === els.hideSet) {
+              applyFrameFilter();
+              els.workerMessage.textContent = isTrackerMode()
+                ? "Handle tracker ignores noise filters to preserve full context."
+                : "Noise filters applied to current results.";
             } else {
               els.workerMessage.textContent = "Filters changed. Start scan again to apply them.";
             }
