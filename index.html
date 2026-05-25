@@ -793,6 +793,7 @@
       const DEFAULT_LOG_FONT_SIZE = 12;
       const MIN_LOG_FONT_SIZE = 10;
       const MAX_LOG_FONT_SIZE = 16;
+      const WORKER_VERSION = "2026-05-26-rp-scope-v2";
       const BIND_COMMAND_RE = /\bvkCmdBind[A-Za-z0-9_]*\b/;
       const SET_COMMAND_RE = /\bvkCmdSet[A-Za-z0-9_]*\b/;
       const ERROR_HIGHLIGHT_RE = /\b(?:ERROR|VK_ERROR_[A-Z0-9_]+)\b/g;
@@ -1398,7 +1399,7 @@
 
           const renderPass = document.createElement("div");
           renderPass.className = "render-pass-cell";
-          if (item.renderPassId) {
+          if (item.renderPassId !== null && item.renderPassId !== undefined) {
             const badge = document.createElement("span");
             badge.className = "render-pass-badge";
             badge.textContent = `[RP#${item.renderPassId}]`;
@@ -1438,7 +1439,9 @@
           focusOnly: filters.focusOnly
         };
 
-        worker = new Worker("worker.js");
+        const workerUrl = new URL("worker.js", window.location.href);
+        workerUrl.searchParams.set("v", WORKER_VERSION);
+        worker = new Worker(workerUrl);
         isScanning = true;
         updateEmptyState();
         setState("Scanning", "running");
